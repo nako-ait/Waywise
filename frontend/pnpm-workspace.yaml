@@ -1,0 +1,5 @@
+# pnpm 11 构建脚本白名单（pnpm 首次 install 时自动生成了本文件）。
+# esbuild 的 postinstall 负责落地平台二进制，vite 依赖它，必须放行，
+# 否则 `pnpm run build` 会因为 ERR_PNPM_IGNORED_BUILDS 直接失败。
+allowBuilds:
+  esbuild: true

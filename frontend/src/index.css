@@ -1,0 +1,256 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  @apply bg-slate-100 font-sans text-slate-800 antialiased;
+  overscroll-behavior: none;
+}
+
+/* ============================================================
+   地图标记样式
+   AMap Marker 的 content 是高德内部渲染的原生 DOM，不经过 React，
+   因此这里用独立 CSS 类（而不是纯 Tailwind 工具类）保证样式一定生效。
+
+   两套刻意不同的视觉语言，扫一眼就能分清：
+     .tc-pin--hotel  蓝色「圆角方形」徽标 + 🏨 + 呼吸动画  → 固定起点 / 终点
+     .tc-pin--poi    橙色「水滴形地图针」+ 序号            → 目的地（选中，橙色带序号）
+     （未选中的候选点用 CircleMarker 画灰色小圆点，见 MapView.tsx）
+   ============================================================ */
+.tc-pin {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 水滴针的针头（内含序号或图标） */
+.tc-pin__head {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: var(--tc-c, #f97316);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* 水滴针的针尖（anchor 用的是 bottom-center，所以针尖即坐标点） */
+.tc-pin__tail {
+  width: 0;
+  height: 0;
+  margin-top: -2px;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 13px solid var(--tc-c, #f97316);
+  filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.25));
+}
+
+/* 名称标签：绝对定位浮在针头上方，不参与布局高度 */
+.tc-pin__label {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 240px;
+  padding: 3px 10px;
+  border: 2px solid var(--tc-c, #f97316);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.25);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.tc-pin__label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tc-pin__label-icon {
+  font-size: 15px;
+}
+
+/* —— 酒店：绿色圆角方形「起点」徽标 —— */
+.tc-pin--hotel {
+  --tc-c: #16a34a;
+}
+
+.tc-pin--hotel .tc-pin__head {
+  width: 42px;
+  height: 40px;
+  /* 上圆下方：和目的地的圆形针头在轮廓上就能区分开 */
+  border-radius: 12px 12px 16px 16px;
+  font-size: 22px;
+  animation: tc-pulse 2.4s infinite;
+}
+
+.tc-pin--hotel .tc-pin__tail {
+  border-left-width: 10px;
+  border-right-width: 10px;
+  border-top-width: 14px;
+}
+
+.tc-pin--hotel .tc-pin__label {
+  color: #15803d;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+@keyframes tc-pulse {
+  0% {
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35), 0 0 0 0 rgba(22, 163, 74, 0.55);
+  }
+  70% {
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35), 0 0 0 14px rgba(22, 163, 74, 0);
+  }
+  100% {
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35), 0 0 0 0 rgba(22, 163, 74, 0);
+  }
+}
+
+/* —— 目的地：橙色水滴形地图针 —— */
+.tc-pin--poi {
+  --tc-c: #f97316;
+}
+
+.tc-pin--poi:hover .tc-pin__head {
+  transform: scale(1.08);
+  transition: transform 0.15s ease;
+}
+
+/* —— 候选目的地（未选中）：灰色圆形 + 灰度分类图标 —— */
+.tc-cand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.92);
+  box-shadow: 0 2px 7px rgba(15, 23, 42, 0.32);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.tc-cand__icon {
+  font-size: 16px;
+  line-height: 1;
+  /* 未选中的点统一灰掉，选中后变成彩色的橙色水滴针 —— 状态一目了然 */
+  filter: grayscale(1);
+}
+
+.tc-cand:hover {
+  transform: scale(1.18);
+  background: rgba(100, 116, 139, 0.95);
+}
+
+.tc-cand:hover .tc-cand__icon {
+  filter: none;
+}
+
+/* 候选点 + 地名标签：外层只负责给标签定位，尺寸与圆点一致，
+   这样 anchor:'center' 依然对准圆心 */
+.tc-cand-wrap {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  --tc-c: #cbd5e1; /* 标签描边用浅灰，和橙色选中针区分 */
+}
+
+.tc-cand-wrap .tc-pin__label {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: 0 1px 6px rgba(15, 23, 42, 0.18);
+}
+
+.tc-cand-wrap .tc-pin__label-icon {
+  filter: grayscale(1);
+}
+
+/* 路线上的交通方式徽标（图标 + 分钟数） */
+.tc-leg {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 6px rgba(15, 23, 42, 0.18);
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.tc-leg__icon {
+  font-size: 12px;
+}
+
+/* InfoWindow 内容 */
+.tc-iw {
+  min-width: 150px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #0f172a;
+}
+
+.tc-iw__title {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.tc-iw__muted {
+  color: #64748b;
+}
+
+/* 高德版权信息的透明度稍微压一点，避免和底部时间轴打架 */
+.amap-logo,
+.amap-copyright {
+  opacity: 0.7;
+}
+
+/* 滚动条 */
+.tc-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.tc-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+.tc-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}

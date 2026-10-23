@@ -1,0 +1,36 @@
+# ============================================================
+# 路书编译师 —— 后端依赖
+# Python 版本：3.11 ~ 3.14 均可（已在 Python 3.14.3 上实测通过）。
+#   若某些包尝试源码编译（很慢），加 --only-binary=:all: 强制走 wheel。
+#
+# 安装：
+#   cd backend
+#   python -m venv .venv
+#   .venv\Scripts\activate            # Windows；macOS/Linux: source .venv/bin/activate
+#   pip install -r requirements.txt
+# ============================================================
+
+# ---- Web 框架与基础工具 ----
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+python-dotenv>=1.0.1
+httpx>=0.27.0            # 调用高德 Web 服务 / LLM HTTP API
+
+# ---- 路线求解（模块 2/3）----
+# OR-Tools 提供 CP-SAT 与路由求解器；缺失时 solver.py 会自动降级为
+# 内置的纯 Python 贪心 + 2-opt（backend/app/services/tsp_fallback.py），
+# 所以这一项装不上也不会让 Demo 挂掉。
+ortools>=9.10
+
+# ---- 存储 ----
+# 距离矩阵缓存直接用标准库 sqlite3（backend/app/services/cache.py），无需额外依赖
+# aiosqlite 只在需要异步写入时才引入
+
+# ---- 可选：多日地理聚类 ----
+# 模块 3 的 KMeans 用纯 Python 实现（services/cluster.py），不依赖 numpy / scikit-learn，
+# 少两个重依赖，装环境更快，答辩时也更好讲清楚算法本身。
+
+# ---- 开发/调试（可选） ----
+# pytest>=8.3.0
