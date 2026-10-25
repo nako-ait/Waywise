@@ -14,7 +14,7 @@ import { uid } from '@/lib/id'
 import { setSearchCity } from '@/lib/amapSearch'
 import { usePlanStale } from '@/lib/routeOrder'
 import { useTripStore } from '@/store/useTripStore'
-import type { AiReplanConstraints } from '@/types'
+import type { AiReplanConstraints, TravelMode } from '@/types'
 
 /**
  * 工作台：左（起点/搜索 + 左下角 AI 对话）｜中（地图）｜右（可互动的竖排路书）
@@ -24,6 +24,27 @@ import type { AiReplanConstraints } from '@/types'
  *   后续每句话 → 增量改参数并重新编译；
  *   底栏「一键编译路书」随时可手动编译。
  */
+const DAY_WORDS: Record<string, number> = { 一: 1, 两: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7 }
+
+/** 从一句话里扒出"几天 / 什么交通方式"，第一轮就能用上，不用等到第二轮 */
+function parseHints(text: string): { days: number | null; mode: TravelMode | null } {
+  const dayMatch = text.match(/([一二两三四五六七\d])\s*(天|日)/)
+  let days: number | null = null
+  if (dayMatch) {
+    const value = DAY_WORDS[dayMatch[1]] ?? Number(dayMatch[1])
+    if (Number.isFinite(value) && value >= 1 && value <= 7) days = value
+  }
+  const modeRules: Array<[RegExp, TravelMode]> = [
+    [/地铁/, 'subway'],
+    [/打车|出租|的士/, 'taxi'],
+    [/公交|大巴/, 'transit'],
+    [/走路|步行/, 'walk'],
+    [/自驾|开车/, 'drive'],
+  ]
+  const mode = modeRules.find(([pattern]) => pattern.test(text))?.[1] ?? null
+  return { days, mode }
+}
+
 export default function PlanWorkspace() {
   const navigate = useNavigate()
   const { run, planning, buildPayload } = usePlanController()
@@ -86,10 +107,53 @@ export default function PlanWorkspace() {
       const hasPlaces = state.destinations.some((dest) => dest.selected)
 
       if (!hasPlaces) {
-        // 第一轮：只解析 + 标点，不编译
+        // 先从句子里扒出天数 / 交通方式（"两日游" "2 天" "用地铁"），能直接用上
+        const hints = parseHints(text)
+        if (hints.days) setDays(hints.days)
+        if (hints.mode) setMode(hints.mode)
+
+        // 第一轮：解析 + 标点，不编译
         const parsed = await aiParse(text)
+
         if (!parsed.places.length) {
-          pushAi('没听出具体地点。可以直接说地名，比如「外滩、豫园、武康路」。')
+          const wantsSuggestion = /推荐|随便|帮我|安排|规划|不知道|看着办|都行/.test(text)
+        const hotelNote = /酒店|住宿|住哪/.test(text)
+          ? ' 酒店那句我记下了——自动定位酒店要你在右侧「出发酒店 → 更换」里搜一下（或在地图上点）。'
+          : ''
+          if (wantsSuggestion && city.pois.length) {
+            const picks = city.pois.slice(0, hints.days && hints.days > 1 ? 6 : 5)
+            addDestinations(
+              picks.map((poi) => ({
+                name: poi.name,
+                lng: poi.lng,
+                lat: poi.lat,
+                source: 'import' as const,
+                selected: true,
+                stayMin: poi.stayMin,
+                openTime: poi.openTime,
+                closeTime: poi.closeTime,
+                tags: poi.tags,
+                address: poi.district,
+              })),
+            )
+            pushAi(
+              `好，你没指名地点，我先按${city.name}这几个地方给你排：` +
+                `${picks.map((poi) => poi.name).join('、')}。` +
+                (hints.days ? `按 ${hints.days} 天算。` : '') +
+                ` 直接编译出来了，想换掉哪个就说「不想去XX」。${hotelNote}`,
+              '按城市地标推荐',
+            )
+            await run()
+            return
+          }
+          const examples = city.pois
+            .slice(0, 3)
+            .map((poi) => poi.name)
+            .join('、')
+          pushAi(
+            `这句话里我没认出具体地点。可以说地名（比如${examples || '外滩、豫园'}），` +
+              `或者直接说「推荐一条两日游」，我按城市地标先给你排一版。${hotelNote}`,
+          )
           return
         }
         addDestinations(
@@ -301,6 +365,9 @@ export default function PlanWorkspace() {
     </div>
   )
 }
+
+
+
 
 
 

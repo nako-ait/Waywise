@@ -5,6 +5,13 @@ import { usePlanStale } from '@/lib/routeOrder'
 import { useTripStore } from '@/store/useTripStore'
 import ModeSwitch from './ModeSwitch'
 
+const WEIGHT_META: Array<{ key: 'time' | 'convenience' | 'cost' | 'walking'; label: string; hint: string }> = [
+  { key: 'time', label: '时间', hint: '少在路上耗' },
+  { key: 'convenience', label: '换乘', hint: '少换乘少折腾' },
+  { key: 'cost', label: '花费', hint: '省门票与车费' },
+  { key: 'walking', label: '步行', hint: '少走路' },
+]
+
 /**
  * 底部总览条：交通方式切换 + 统计 + 编译入口。
  * 没有路书时显示直线里程估算；编译后显示真实统计（步行/交通时间/费用）。
@@ -16,10 +23,13 @@ export default function BottomBar() {
   const planError = useTripStore((s) => s.planError)
   const days = useTripStore((s) => s.days)
   const setDays = useTripStore((s) => s.setDays)
+  const weights = useTripStore((s) => s.weights)
+  const setWeight = useTripStore((s) => s.setWeight)
   const { run, planning, prewarm } = usePlanController()
   const stale = usePlanStale()
 
   const [prewarming, setPrewarming] = useState(false)
+  const [prefsOpen, setPrefsOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
   const picked = useMemo(() => destinations.filter((d) => d.selected), [destinations])
@@ -55,7 +65,7 @@ export default function BottomBar() {
   }
 
   return (
-    <footer className="flex h-16 shrink-0 items-center gap-4 border-t border-slate-200 bg-white px-4">
+    <footer className="relative flex h-16 shrink-0 items-center gap-4 border-t border-slate-200 bg-white px-4">
       <ModeSwitch />
 
       {/* 天数：意图卡删掉之后，天数收到这里 */}
@@ -76,6 +86,81 @@ export default function BottomBar() {
         >
           +
         </button>
+      </div>
+
+      {/* 路线偏好（原来的意图卡搬到这里，点开才展开） */}
+      <div className="relative">
+        <button
+          className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] transition-colors ${
+            prefsOpen
+              ? 'border-amber-300 bg-amber-50 text-amber-800'
+              : 'border-amber-200 bg-amber-50/60 text-amber-700 hover:bg-amber-50'
+          }`}
+          onClick={() => setPrefsOpen((value) => !value)}
+          title="时间 / 换乘 / 花费 / 步行 四个偏好"
+        >
+          <span className="font-medium">路线偏好</span>
+          <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-700">
+            时间 {weights.time.toFixed(1)} · 少走路 {weights.walking.toFixed(1)}
+          </span>
+          <span className="text-[9px] text-amber-500">{prefsOpen ? '▾' : '▸'}</span>
+        </button>
+
+        {prefsOpen && (
+          <div className="absolute bottom-full left-0 z-30 mb-2 w-[320px] rounded-xl border border-amber-200 bg-white p-3 shadow-[0_20px_44px_-24px_rgba(15,23,42,.45)]">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[12px] font-semibold text-slate-800">路线偏好</span>
+              <span className="text-[10px] text-slate-400">往哪边拖，求解器就更在意哪边</span>
+            </div>
+            <div className="space-y-2">
+              {WEIGHT_META.map(({ key, label, hint }) => (
+                <div key={key}>
+                  <div className="flex items-center justify-between text-[10px] text-slate-500">
+                    <span>{label}</span>
+                    <span className="text-slate-400">{hint}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.1}
+                      value={weights[key]}
+                      onChange={(event) => setWeight(key, Number(event.target.value))}
+                      className="h-1 min-w-0 flex-1 cursor-pointer accent-amber-600"
+                    />
+                    <span className="w-7 text-right text-[10px] font-medium text-slate-600">
+                      {weights[key].toFixed(1)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2">
+              <button
+                className="text-[10px] text-slate-400 hover:text-slate-700"
+                onClick={() => {
+                  setWeight('time', 0.6)
+                  setWeight('convenience', 0.5)
+                  setWeight('cost', 0.4)
+                  setWeight('walking', 0.5)
+                }}
+              >
+                恢复默认
+              </button>
+              <button
+                className="rounded-lg bg-slate-900 px-3 py-1.5 text-[11px] text-white hover:bg-slate-800 disabled:bg-slate-300"
+                onClick={() => {
+                  void run()
+                  setPrefsOpen(false)
+                }}
+                disabled={planning || picked.length === 0}
+              >
+                按新偏好重算
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex items-baseline gap-2 border-l border-slate-200 pl-4">
@@ -159,4 +244,5 @@ export default function BottomBar() {
     </footer>
   )
 }
+
 
