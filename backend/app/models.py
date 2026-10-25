@@ -1,4 +1,4 @@
-"""核心数据模型（Pydantic v2）。
+﻿"""核心数据模型（Pydantic v2）。
 
 字段命名刻意保持 camelCase，与前端 TypeScript 类型一一对应，
 前后端 JSON 直接互通、无需 alias 转换。
@@ -273,6 +273,8 @@ class AiReplanRequest(PlanRequest):
 
 class AiReplanResponse(BaseModel):
     source: str
+    # 给用户看的自然语言回复（人话解释：改了什么、为什么这么选）
+    reply: str = ''
     # 模型（或规则）解析出的调整参数，原样回显，方便用户核对
     constraints: dict = Field(default_factory=dict)
     # 人话描述的变更清单
@@ -292,3 +294,4 @@ class AiExplainResponse(BaseModel):
     source: str
     text: str
     debug: dict | None = None
+

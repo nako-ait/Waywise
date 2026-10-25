@@ -41,6 +41,13 @@ MODE_LABELS = {
     "taxi": "打车",
     "drive": "驾车",
 }
+# 权重在求解器里的语义是"惩罚/在意程度"，所以用短句描述而不是裸露 key
+WEIGHT_LABELS = {
+    "time": "赶时间",
+    "convenience": "少换乘",
+    "cost": "省钱",
+    "walking": "少走路",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -202,6 +209,124 @@ def _clamp_weights(raw: dict) -> dict[str, float]:
     return out
 
 
+async def _compose_reply(
+    *,
+    text: str,
+    applied: list[str],
+    removed: list[str],
+    plan: PlanResponse,
+    mode: str,
+    days: int,
+    hotel_name: str,
+    model_ok: bool,
+) -> str:
+    """把"改了哪些参数"翻译成一句像人说的话。
+
+    为什么要有这一步：`applied` 是给程序看的变更清单，直接甩给用户就是
+    「权重 convenience → 0.9」这种没人味的句子。这里先出一条规则版的口语解释
+    （离线也成立），有大模型时再让它润色一遍（带取舍理由）。
+    """
+    day = plan.days[0] if plan.days else None
+    stops = sum(len(item.stops) for item in plan.days)
+    stats = (plan.solver or {}).get("totalStats") or {}
+    walk_km = stats.get("totalWalkKm")
+    return_time = getattr(day, "returnTime", None)
+
+    mentions: list[str] = []
+    if "地铁" in text:
+        mentions.append("地铁")
+    if any(word in text for word in ("打车", "出租", "的士")):
+        mentions.append("打车")
+    if any(word in text for word in ("公交", "大巴")):
+        mentions.append("公交")
+    if any(word in text for word in ("走路", "步行")):
+        mentions.append("走路")
+
+    mode_reason = ""
+    if len(mentions) >= 2 and mode in {"subway", "transit", "taxi", "drive"}:
+        if mode in {"subway", "transit"}:
+            mode_reason = (
+                f"你给了「{' / '.join(mentions)}」几个选项，我按更省钱、也不堵车的思路先排了"
+                f"{MODE_LABELS[mode]}；打车能少走路，但会贵一些。"
+            )
+        else:
+            mode_reason = (
+                f"你给了「{' / '.join(mentions)}」几个选项，我按少走路的思路先排了打车；"
+                f"想省钱的话说一句「改地铁」就行。"
+            )
+    elif mode in MODE_LABELS and any(
+        word in text for word in ("打车", "地铁", "公交", "开车", "步行", "走路")
+    ):
+        mode_reason = f"交通方式我按你说的定成了{MODE_LABELS[mode]}。"
+
+    change_text = "、".join(applied) if applied else "这句里没有能改的参数，路书先保持原样"
+    if removed:
+        change_text += f"，并去掉了{('、'.join(removed))}"
+
+    # 把「交通方式 → 地铁」这类清单句翻成人话（交通方式交给下面单独解释）
+    human_changes: list[str] = []
+    for item in applied:
+        if item.startswith("交通方式"):
+            continue
+        if item.startswith("天数 → "):
+            human_changes.append(f"天数改成 {item.split('→ ')[-1]} 天")
+        elif item.startswith("出发时间 → "):
+            human_changes.append(f"出发改到 {item.split('→ ')[-1]}")
+        elif item.startswith("收工时间 → "):
+            human_changes.append(f"收工改到 {item.split('→ ')[-1]}")
+        elif item.startswith("午餐 → "):
+            human_changes.append(f"午饭留 {item.split('→ ')[-1]}")
+        elif item.startswith("必需") or item.startswith("必去："):
+            human_changes.append(item.replace("必去：", "把 ").replace(" 排进去", ""))
+        elif " → " in item and item.split(" → ")[0] in WEIGHT_LABELS.values():
+            human_changes.append(f"更看重{item.split(' → ')[0]}")
+        elif item.startswith("移除："):
+            human_changes.append(f"去掉{item.split('：', 1)[-1]}")
+        else:
+            human_changes.append(item)
+
+    if human_changes:
+        change_text = "、".join(human_changes)
+    elif not any(item.startswith("交通方式") for item in applied):
+        change_text = "这句里没有能改的参数，路书先保持原样"
+
+    tail = "如果还想更松一点，可以说「每天少排一个点」或「午饭后回酒店休息」。"
+    if human_changes:
+        composed = f"收到，这次调整是：{change_text}。{mode_reason}"
+    else:
+        composed = f"收到，{mode_reason or '这句里没有能改的参数，路书先保持原样。'}"
+    composed += f"现在这版是 {days} 天 {stops} 站"
+    if walk_km:
+        composed += f"，步行约 {walk_km} km"
+    if return_time:
+        composed += f"，{return_time} 回到{hotel_name}。"
+    else:
+        composed += "。"
+    composed += tail
+
+    if not model_ok:
+        return composed
+
+    system = (
+        "你是「路书编译师」的行程助理。用中文口语回复 2~4 句：先说这次改了什么，"
+        "再说为什么这么选——尤其是用户同时提了多个交通方式时，要讲清你怎么取舍、"
+        "另一种选项会带来什么代价；最后给一条可选的下一步建议。"
+        "不要罗列参数名、不要 markdown、不要编号，像朋友在聊天。"
+    )
+    user = (
+        f"用户原话：{text}\n"
+        f"系统实际改动：{'；'.join(applied) or '无'}\n"
+        f"去掉的地点：{'、'.join(removed) or '无'}\n"
+        f"用户提到的交通方式：{'、'.join(mentions) or '未提到'}\n"
+        f"编译结果：{days} 天 {stops} 站，步行 {walk_km or 0} km，"
+        f"预计 {return_time or '—'} 回到{hotel_name}"
+    )
+    polished = await llm.call_text(system, user, timeout=20, temperature=0.6, max_tokens=220)
+    if polished.ok and polished.text:
+        return polished.text.strip()
+    return composed
+
+
 async def replan(req: AiReplanRequest) -> AiReplanResponse:
     """POST /api/ai/replan 的实现：解析修改意见 -> 合并参数 -> 重新求解。"""
     warnings: list[str] = []
@@ -235,7 +360,7 @@ async def replan(req: AiReplanRequest) -> AiReplanResponse:
     changed_weights = _clamp_weights(constraints.get("weights") or {})
     for key, value in changed_weights.items():
         weights[key] = value
-        applied.append(f"权重「{key}」→ {value}")
+        applied.append(f"{WEIGHT_LABELS.get(key, key)} → {value:.1f}")
 
     # ---- 时间与天数 ----
     options = req.options.model_copy()
@@ -311,8 +436,20 @@ async def replan(req: AiReplanRequest) -> AiReplanResponse:
     )
     plan = await create_plan(new_req)
 
+    reply = await _compose_reply(
+        text=req.text,
+        applied=applied,
+        removed=removed,
+        plan=plan,
+        mode=mode,
+        days=days,
+        hotel_name=req.hotel.name,
+        model_ok=(source == "llm"),
+    )
+
     return AiReplanResponse(
         source=source,
+        reply=reply,
         constraints=constraints,
         applied=applied,
         removed=removed,
@@ -393,3 +530,4 @@ async def explain(plan: PlanResponse, question: str | None = None) -> AiExplainR
         text=plan.explanation,
         debug={"reason": "未配置 LLM API Key，返回求解器给出的规则化解释"},
     )
+

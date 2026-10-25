@@ -129,12 +129,13 @@ export default function PlanWorkspace() {
       applyConstraints(result.constraints as AiReplanConstraints, result.removed)
       // 用后端算好的路书覆盖，并把指纹对齐
       setPlan(result.plan)
-      const applied = result.applied.length ? result.applied.join('；') : '没有可执行的调整'
-      pushAi(
-        `${applied}。\n已按新参数重新编译：${result.plan.days.length} 天 / ` +
-          `${result.plan.days.reduce((sum, day) => sum + day.stops.length, 0)} 站。`,
-        result.source === 'llm' ? '大模型解析' : '规则解析',
-      )
+      // 优先用后端生成的人话回复（含取舍理由）；没有才退回变更清单
+      const stops = result.plan.days.reduce((sum, day) => sum + day.stops.length, 0)
+      const applied = result.applied.length ? result.applied.join('、') : '没有可执行的调整'
+      const replyText =
+        result.reply?.trim() ||
+        `${applied}。已重新编译：${result.plan.days.length} 天 / ${stops} 站。`
+      pushAi(replyText, result.source === 'llm' ? '大模型 · 已重新编译' : '规则解析 · 已重新编译')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'AI 调用失败'
       showToast('error', message)
@@ -300,6 +301,7 @@ export default function PlanWorkspace() {
     </div>
   )
 }
+
 
 
 

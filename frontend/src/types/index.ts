@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 路书编译师 —— 全局核心数据结构
  * 与后端 app/models.py 中的 Pydantic 模型保持一致（字段名一一对应，便于联调）。
  *
@@ -295,6 +295,8 @@ export interface AiReplanConstraints {
 
 export interface AiReplanResponse {
   source: string
+  /** 后端生成的人话回复（改了什么、为什么） */
+  reply?: string
   constraints: AiReplanConstraints
   applied: string[]
   removed: string[]
@@ -370,4 +372,5 @@ export interface ShareCodeResponse {
   code: string
   message: string
 }
+
 
