@@ -7,10 +7,12 @@ import Modal from './Modal'
 interface Props {
   open: boolean
   onClose: () => void
+  /** 导入成功后的回调（首页用它跳到工作台） */
+  onImported?: () => void
 }
 
 /** 导入行程：输入 6 位口令 → 拉取 → 覆盖当前状态 → 自动重算 */
-export default function ImportDialog({ open, onClose }: Props) {
+export default function ImportDialog({ open, onClose, onImported }: Props) {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const setFullTripState = useTripStore((s) => s.setFullTripState)
@@ -35,6 +37,7 @@ export default function ImportDialog({ open, onClose }: Props) {
       setFullTripState(trip)
       setCode('')
       onClose()
+      onImported?.()
 
       const picked = useTripStore.getState().destinations.filter((d) => d.selected).length
       if (picked === 0) {

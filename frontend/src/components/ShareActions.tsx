@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { shareTrip } from '@/api/client'
+import { recordShare } from '@/lib/shareHistory'
 import { snapshotTrip, useTripStore } from '@/store/useTripStore'
 import ImportDialog from './ImportDialog'
 import Modal from './Modal'
@@ -66,9 +67,14 @@ export default function ShareActions() {
     setCopied(false)
     setSharing(true)
     try {
-      const trip = snapshotTrip(useTripStore.getState())
+      const state = useTripStore.getState()
+      const trip = snapshotTrip(state)
       const result = await shareTrip(trip)
       setCode(result.code)
+      const title =
+        state.trips.find((item) => item.id === state.activeTripId)?.title ??
+        `${state.hotel.name.replace(/ · .*$/, '')} · ${state.days} 天`
+      recordShare(result.code, title)
     } catch {
       setShareOpen(false)
       showToast('error', '生成口令失败，请确认后端已启动')

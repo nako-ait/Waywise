@@ -49,6 +49,28 @@ export interface TripOptions {
   lunchBreakMin: number
 }
 
+/** 本地"我的路书"：一份可保存、可分组、可分享的行程 */
+export interface TripRecord {
+  id: string
+  title: string
+  /** 分组名，默认「未分组」 */
+  group: string
+  updatedAt: string
+  snapshot: SharedTripData
+  /** 保存时的编译结果，打开详情页可直接展示 */
+  plan?: PlanResponse | null
+}
+
+/** 本地账号（1.1 先做本地版；服务端账号是下一步） */
+export interface Profile {
+  nickname: string
+  loggedIn: boolean
+  amapKey: string
+  llmKey: string
+}
+
+export const TRIP_GROUPS_DEFAULT = ['未分组', '上海 · 亲子', '上海 · 陪朋友']
+
 export const DEFAULT_OPTIONS: TripOptions = {
   dayStartTime: '09:00',
   dayEndTime: '21:00',
@@ -172,6 +194,23 @@ export interface TripState {
   setFullTripState: (data: SharedTripData) => void
   showToast: (kind: 'success' | 'error', text: string) => void
   clearToast: () => void
+
+  // —— 1.1：多路书 + 本地账号 ——
+  trips: TripRecord[]
+  profile: Profile | null
+  activeTripId: string | null
+  /** 首页 Hero 输入后带进工作台的初始语料 */
+  pendingPrompt: string | null
+  setPendingPrompt: (text: string | null) => void
+  /** 把当前草稿存成一份路书（返回记录） */
+  saveTrip: (title?: string, group?: string) => TripRecord
+  /** 打开一份已保存的路书（会替换当前草稿） */
+  openTrip: (id: string) => boolean
+  deleteTrip: (id: string) => void
+  renameTrip: (id: string, title: string) => void
+  moveTrip: (id: string, group: string) => void
+  saveProfile: (patch: Partial<Profile>) => void
+  logout: () => void
 }
 
 /** 输入指纹：酒店 + 选中集合 + 方式 + 天数 + 权重 + 时间设置 */
@@ -322,6 +361,10 @@ export const useTripStore = create<TripState>()(
       hotelConfirmed: false,
       destinations: [],
       toast: null,
+      trips: [],
+      profile: null,
+      activeTripId: null,
+      pendingPrompt: null,
       days: 1,
       mode: 'transit',
       weights: { ...DEFAULT_WEIGHTS },
@@ -489,12 +532,82 @@ export const useTripStore = create<TripState>()(
         set({ toast: { id: Date.now() + Math.floor(Math.random() * 1000), kind, text } }),
 
       clearToast: () => set({ toast: null }),
+
+      // —— 1.1：多路书 + 本地账号 ——
+      setPendingPrompt: (pendingPrompt) => set({ pendingPrompt }),
+
+      saveTrip: (title, group) => {
+        const state = get()
+        const snapshot = snapshotTrip(state)
+        const existing = state.activeTripId
+          ? state.trips.find((trip) => trip.id === state.activeTripId)
+          : undefined
+        const record: TripRecord = {
+          id: existing?.id ?? `trip_${Date.now().toString(36)}`,
+          title:
+            title?.trim() ||
+            existing?.title ||
+            `${state.hotel.name.replace(/ · .*$/, '')} · ${state.days} 天`,
+          group: group || existing?.group || TRIP_GROUPS_DEFAULT[0],
+          updatedAt: new Date().toISOString(),
+          snapshot,
+          plan: state.plan,
+        }
+        set({
+          trips: [record, ...state.trips.filter((trip) => trip.id !== record.id)],
+          activeTripId: record.id,
+        })
+        return record
+      },
+
+      openTrip: (id) => {
+        const record = get().trips.find((trip) => trip.id === id)
+        if (!record) return false
+        get().setFullTripState(record.snapshot)
+        if (record.plan) {
+          set({ plan: record.plan, planSignature: get().currentSignature() })
+        }
+        set({ activeTripId: record.id })
+        return true
+      },
+
+      deleteTrip: (id) =>
+        set((state) => ({
+          trips: state.trips.filter((trip) => trip.id !== id),
+          activeTripId: state.activeTripId === id ? null : state.activeTripId,
+        })),
+
+      renameTrip: (id, title) =>
+        set((state) => ({
+          trips: state.trips.map((trip) =>
+            trip.id === id ? { ...trip, title: title.trim() || trip.title } : trip,
+          ),
+        })),
+
+      moveTrip: (id, group) =>
+        set((state) => ({
+          trips: state.trips.map((trip) => (trip.id === id ? { ...trip, group } : trip)),
+        })),
+
+      saveProfile: (patch) =>
+        set((state) => ({
+          profile: {
+            nickname: state.profile?.nickname ?? '我',
+            loggedIn: true,
+            amapKey: state.profile?.amapKey ?? '',
+            llmKey: state.profile?.llmKey ?? '',
+            ...patch,
+          },
+        })),
+
+      logout: () => set({ profile: null }),
     }),
     {
       name: 'tripcompiler:v1',
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() => localStorage),
-      // v1 -> v2：新增 options / plan / planSignature，缺失的字段用默认值补齐
+      // v1 -> v2：新增 options / plan / planSignature
+      // v2 -> v3：新增多路书 trips / 本地账号 profile / activeTripId
       migrate: (persisted) => {
         const state = (persisted ?? {}) as Partial<TripState>
         return {
@@ -502,6 +615,9 @@ export const useTripStore = create<TripState>()(
           options: state.options ?? { ...DEFAULT_OPTIONS },
           plan: state.plan ?? null,
           planSignature: state.planSignature ?? null,
+          trips: state.trips ?? [],
+          profile: state.profile ?? null,
+          activeTripId: state.activeTripId ?? null,
         } as TripState
       },
       // 只持久化业务数据与视野，运行时状态（mapReady / planning）不落盘
@@ -521,6 +637,10 @@ export const useTripStore = create<TripState>()(
         isochroneVisible: s.isochroneVisible,
         isochroneMinutes: s.isochroneMinutes,
         showLabels: s.showLabels,
+        // 1.1：多路书 + 本地账号
+        trips: s.trips,
+        profile: s.profile,
+        activeTripId: s.activeTripId,
       }),
     },
   ),

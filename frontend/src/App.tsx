@@ -1,60 +1,33 @@
-import BackendStatus from '@/components/BackendStatus'
-import MapView from '@/components/MapView'
-import ShareActions from '@/components/ShareActions'
-import Sidebar from '@/components/Sidebar'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import ToastHost from '@/components/ToastHost'
-import BottomBar from '@/components/BottomBar'
-import DayTabs from '@/components/DayTabs'
-import Timeline from '@/components/Timeline'
+import Home from '@/pages/Home'
+import PlanWorkspace from '@/pages/PlanWorkspace'
+import Profile from '@/pages/Profile'
+import ShareLanding from '@/pages/ShareLanding'
+import TripDetail from '@/pages/TripDetail'
 
 /**
- * 整体布局
- *
- *  ┌────────────────────────────────────────────────┐
- *  │ Header：产品名 + 城市 + 后端状态（就绪/未启动）  │
- *  ├───────────────┬────────────────────────────────┤
- *  │ Sidebar       │ MapView（标记 + 路线 + 等时圈） │
- *  │ AI / 酒店 /   │                                │
- *  │ 线路 / 列表   │                                │
- *  ├───────────────┴────────────────────────────────┤
- *  │ Timeline：每站到达/停留/交通（有路书才出现）      │
- *  │ DayTabs：多日切换（多日才出现）                  │
- *  ├────────────────────────────────────────────────┤
- *  │ BottomBar：交通方式 + 统计 + 编译入口            │
- *  └────────────────────────────────────────────────┘
+ * 1.1 路由：
+ *   /            首页（AI 主入口）
+ *   /plan        工作台（左 AI 对话 / 中 地图 / 右 竖排路书）
+ *   /trip/:id    路书详情（成稿）
+ *   /s/:code     分享落地（只读 + 复制到我的）
+ *   /me          我的（本地账号 / 密钥 / 路线库 / 分享记录）
  */
 export default function App() {
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4">
-        <div className="flex items-baseline gap-2">
-          <h1 className="text-base font-bold tracking-tight text-slate-900">
-            路书编译师 <span className="text-slate-400">TripCompiler</span>
-          </h1>
-          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">
-            上海 · GCJ-02
-          </span>
-        </div>
-        <p className="hidden text-xs text-slate-400 sm:block">
-          以酒店为固定起点 · 地图选点 · AI 编译多日路书
-        </p>
-        <div className="flex items-center gap-2">
-          <ShareActions />
-          <BackendStatus />
-        </div>
-      </header>
-
-      <main className="flex min-h-0 flex-1">
-        <Sidebar />
-        <section className="relative min-w-0 flex-1">
-          <MapView />
-        </section>
-      </main>
-
-      <Timeline />
-      <DayTabs />
-      <BottomBar />
+    <BrowserRouter>
+      <div className="flex h-full w-full flex-col overflow-hidden">
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/plan" element={<PlanWorkspace />} />
+          <Route path="/trip/:id" element={<TripDetail />} />
+          <Route path="/s/:code" element={<ShareLanding />} />
+          <Route path="/me" element={<Profile />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </div>
       <ToastHost />
-    </div>
+    </BrowserRouter>
   )
 }
