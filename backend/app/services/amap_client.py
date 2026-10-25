@@ -720,15 +720,30 @@ async def leg_route(
 
     # 降级：用矩阵里的估算值 + 直线折线
     if matrix is not None:
+        if matrix.mode == spec.key:
+            return LegRoute(
+                duration_min=matrix.durations[i][j],
+                distance_km=matrix.distances[i][j],
+                cost=matrix.costs[i][j],
+                walk_km=matrix.walk_km[i][j],
+                transfers=matrix.transfers[i][j],
+                polyline=[a, b],
+                approx=True,
+                data_source=matrix.data_source,
+            )
+        # 逐段覆盖：矩阵是按"整体方式"建的，这一段换了方式就得按它自己的速度/费率重算，
+        # 否则混合出行的时间与费用会跟标签对不上。
+        straight = haversine_km(a, b)
+        minutes, km, cost, walk, transfers = derive_cell(spec, 0.0, 0.0, straight)
         return LegRoute(
-            duration_min=matrix.durations[i][j],
-            distance_km=matrix.distances[i][j],
-            cost=matrix.costs[i][j],
-            walk_km=matrix.walk_km[i][j],
-            transfers=matrix.transfers[i][j],
+            duration_min=minutes,
+            distance_km=km,
+            cost=cost,
+            walk_km=walk,
+            transfers=transfers,
             polyline=[a, b],
             approx=True,
-            data_source=matrix.data_source,
+            data_source="offline",
         )
     straight = haversine_km(a, b)
     km = straight * spec.detour
