@@ -110,6 +110,8 @@ export interface TripState {
   // —— 规划参数（模块 2/3 使用，先落库避免后面改结构） ——
   days: number
   mode: TravelMode
+  /** 逐段覆盖：目的地 id → 该段交通方式；"__return__" 表示回程 */
+  legModes: Record<string, TravelMode>
   weights: Weights
 
   /** 地图视野，刷新后回到上次位置 */
@@ -161,6 +163,9 @@ export interface TripState {
   deselectAll: () => void
   setDays: (days: number) => void
   setMode: (mode: TravelMode) => void
+  /** 改某一段的交通方式（destId = 目的地 id，"__return__" 表示回程） */
+  setLegMode: (destId: string, mode: TravelMode) => void
+  clearLegModes: () => void
   setWeight: (key: keyof Weights, value: number) => void
   resetAll: () => void
   setView: (view: MapView) => void
@@ -215,7 +220,9 @@ export interface TripState {
 
 /** 输入指纹：酒店 + 选中集合 + 方式 + 天数 + 权重 + 时间设置 */
 function computeSignature(
-  state: Pick<TripState, 'hotel' | 'destinations' | 'mode' | 'days' | 'weights' | 'options'>,
+  state: Pick<TripState, 'hotel' | 'destinations' | 'mode' | 'days' | 'weights' | 'options'> & {
+    legModes?: Record<string, string>
+  },
 ): string {
   const picked = state.destinations
     .filter((d) => d.selected)
@@ -226,6 +233,7 @@ function computeSignature(
     mode: state.mode,
     days: state.days,
     weights: state.weights,
+    legModes: state.legModes ?? {},
     options: [state.options.dayStartTime, state.options.dayEndTime, state.options.lunchBreakMin],
   })
 }
@@ -335,6 +343,18 @@ function normalizeMode(raw: unknown): TravelMode {
   return TRAVEL_MODES.includes(raw as TravelMode) ? (raw as TravelMode) : 'transit'
 }
 
+/** 逐段方式：只保留合法 key（目的地 id / __return__）与合法方式 */
+function normalizeLegModes(raw: unknown): Record<string, TravelMode> {
+  if (!raw || typeof raw !== 'object') return {}
+  const out: Record<string, TravelMode> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof key === 'string' && TRAVEL_MODES.includes(value as TravelMode)) {
+      out[key] = value as TravelMode
+    }
+  }
+  return out
+}
+
 /** 收集当前行程快照（分享用）：只取"输入态"，不含已编译的路书 */
 export function snapshotTrip(state: TripState): SharedTripData {
   return {
@@ -349,6 +369,7 @@ export function snapshotTrip(state: TripState): SharedTripData {
     destinations: state.destinations.map(({ id: _id, ...rest }) => rest),
     days: state.days,
     mode: state.mode,
+    legModes: { ...state.legModes },
     weights: { ...state.weights },
     options: { ...state.options },
   }
@@ -367,6 +388,7 @@ export const useTripStore = create<TripState>()(
       pendingPrompt: null,
       days: 1,
       mode: 'transit',
+      legModes: {},
       weights: { ...DEFAULT_WEIGHTS },
       view: { lng: 121.4737, lat: 31.2304, zoom: 12.5 },
       mapReady: false,
@@ -449,7 +471,10 @@ export const useTripStore = create<TripState>()(
         set((s) => ({ destinations: s.destinations.map((d) => ({ ...d, selected: false })) })),
 
       setDays: (days) => set({ days: Math.min(7, Math.max(1, Math.round(days))) }),
-      setMode: (mode) => set({ mode }),
+      setMode: (mode) => set({ mode, legModes: {} }),
+      setLegMode: (destId, mode) =>
+        set((state) => ({ legModes: { ...state.legModes, [destId]: mode } })),
+      clearLegModes: () => set({ legModes: {} }),
       setWeight: (key, value) =>
         set((s) => ({ weights: { ...s.weights, [key]: Math.min(1, Math.max(0, value)) } })),
 
@@ -511,6 +536,7 @@ export const useTripStore = create<TripState>()(
           destinations,
           days: Math.round(clampNumber(data?.days, 1, 7, 1)),
           mode: normalizeMode(data?.mode),
+          legModes: normalizeLegModes(data?.legModes),
           weights: normalizeWeights(data?.weights),
           options: normalizeOptions(data?.options),
           // 导入的是"输入态"，旧路书必须清掉，交给编译器重算
@@ -604,7 +630,7 @@ export const useTripStore = create<TripState>()(
     }),
     {
       name: 'tripcompiler:v1',
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => localStorage),
       // v1 -> v2：新增 options / plan / planSignature
       // v2 -> v3：新增多路书 trips / 本地账号 profile / activeTripId
@@ -618,6 +644,7 @@ export const useTripStore = create<TripState>()(
           trips: state.trips ?? [],
           profile: state.profile ?? null,
           activeTripId: state.activeTripId ?? null,
+          legModes: state.legModes ?? {},
         } as TripState
       },
       // 只持久化业务数据与视野，运行时状态（mapReady / planning）不落盘
@@ -627,6 +654,7 @@ export const useTripStore = create<TripState>()(
         destinations: s.destinations,
         days: s.days,
         mode: s.mode,
+        legModes: s.legModes,
         weights: s.weights,
         view: s.view,
         options: s.options,
@@ -653,3 +681,4 @@ export const useTripStore = create<TripState>()(
  */
 export const selectSelectedDestinations = (s: TripState): Destination[] =>
   s.destinations.filter((d) => d.selected)
+

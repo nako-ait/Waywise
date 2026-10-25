@@ -30,11 +30,9 @@ export default function Profile() {
 
   return (
     <div className="flex h-full flex-col bg-slate-100">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4">
-        <button className="text-[11px] text-slate-400 hover:text-slate-700" onClick={() => navigate('/')}>
-          ← 首页
-        </button>
-        <span className="text-sm font-semibold text-slate-900">我的</span>
+      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4">
+        <span className="text-sm font-semibold text-slate-900">个人中心</span>
+        <span className="text-[10px] text-slate-400">账号 · 密钥 · 路线库 · 分享记录</span>
         {profile && (
           <button
             className="ml-auto text-[11px] text-slate-400 hover:text-slate-700"

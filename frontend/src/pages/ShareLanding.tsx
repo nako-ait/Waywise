@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { fetchSharedTrip } from '@/api/client'
 import MapView from '@/components/MapView'
@@ -64,12 +64,6 @@ export default function ShareLanding() {
         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">口令 {code}</span>
         <div className="ml-auto flex items-center gap-2">
           <button
-            className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] text-slate-600 hover:bg-slate-50"
-            onClick={() => navigate('/')}
-          >
-            回首页
-          </button>
-          <button
             className="rounded-lg bg-slate-900 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-slate-800 disabled:bg-slate-300"
             onClick={copyToMine}
             disabled={status !== 'ok'}
@@ -94,3 +88,4 @@ export default function ShareLanding() {
     </div>
   )
 }
+

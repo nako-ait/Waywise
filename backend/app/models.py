@@ -147,6 +147,8 @@ class PlanRequest(BaseModel):
     destinations: list[Destination]
     days: int = 1
     mode: TravelMode = "transit"
+    # 逐段覆盖：目的地 id → 该段交通方式；"__return__" 表示回酒店那一段
+    legModes: dict[str, str] | None = None
     weights: Weights = Field(default_factory=Weights)
     naturalLanguage: str | None = None
     options: PlanOptions = Field(default_factory=PlanOptions)

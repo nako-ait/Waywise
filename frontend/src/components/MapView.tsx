@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { hasAmapKey, loadAMap, reverseGeocode } from '@/lib/amap'
 import { blockPropagation, escapeHtml } from '@/lib/dom'
 import { layoutLabels, type LabelCandidate, type LabelObstacle } from '@/lib/labelLayout'
@@ -560,11 +560,18 @@ export default function MapView() {
       ...stops.map((stop) => ({ lng: stop.lng, lat: stop.lat })),
       { lng: hotel.lng, lat: hotel.lat },
     ]
+    const routeMode = (plan.solver?.mode as typeof mode) ?? mode
     const legs: LegEndpoints[] = []
-    for (let i = 1; i < points.length; i += 1) legs.push({ from: points[i - 1], to: points[i] })
+    for (let i = 1; i < points.length; i += 1) {
+      // 每一段用它自己的方式（逐段覆盖），没有就用整份路书的方式
+      const isReturn = i === points.length - 1
+      const legMode = isReturn
+        ? ((activeDayPlan.returnLeg?.mode as typeof mode) ?? routeMode)
+        : ((stops[i - 1].transportFromPrev?.mode as typeof mode) ?? routeMode)
+      legs.push({ from: points[i - 1], to: points[i], mode: legMode })
+    }
 
     let cancelled = false
-    const routeMode = (plan.solver?.mode as typeof mode) ?? mode
     void fetchLegGeometries(AMap, legs, routeMode).then((geometries) => {
       if (cancelled || !geometries) return
       setClientPaths(geometries.map((item) => item.path))

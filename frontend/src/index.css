@@ -223,6 +223,22 @@ body {
   opacity: 0.55;
 }
 
+/* 首页推荐线路的悬浮气泡：轻轻上下浮动 */
+@keyframes tc-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--tc-rotate, 0deg));
+  }
+  50% {
+    transform: translateY(-10px) rotate(var(--tc-rotate, 0deg));
+  }
+}
+
+.tc-bubble {
+  --tc-rotate: 0deg;
+  animation: tc-float 7s ease-in-out infinite;
+}
+
 /* 滚动条 */
 .tc-scroll::-webkit-scrollbar {
   width: 8px;

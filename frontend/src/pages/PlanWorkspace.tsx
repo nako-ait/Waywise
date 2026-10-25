@@ -1,12 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+﻿import { useEffect, useRef, useState } from 'react'
 import { aiParse, aiReplan } from '@/api/client'
 import ChatDock, { type ChatMessage } from '@/components/ChatDock'
 import HotelPanel from '@/components/HotelPanel'
 import IntentCard from '@/components/IntentCard'
 import MapView from '@/components/MapView'
 import PoiQuickAdd from '@/components/PoiQuickAdd'
-import ShareActions from '@/components/ShareActions'
 import TimelineVertical from '@/components/TimelineVertical'
 import BottomBar from '@/components/BottomBar'
 import { usePlanController } from '@/hooks/usePlanController'
@@ -24,9 +22,9 @@ import type { AiReplanConstraints } from '@/types'
  *   也可以随时点意图卡上的「编译路书」。
  */
 export default function PlanWorkspace() {
-  const navigate = useNavigate()
   const { run, planning, buildPayload } = usePlanController()
   const stale = usePlanStale()
+  const plan = useTripStore((s) => s.plan)
   const pendingPrompt = useTripStore((s) => s.pendingPrompt)
   const setPendingPrompt = useTripStore((s) => s.setPendingPrompt)
   const addDestinations = useTripStore((s) => s.addDestinations)
@@ -153,13 +151,13 @@ export default function PlanWorkspace() {
 
   return (
     <div className="flex h-full flex-col bg-slate-100">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4">
-        <button className="text-[11px] text-slate-400 hover:text-slate-700" onClick={() => navigate('/')}>
-          ← 首页
-        </button>
+      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4">
         <span className="text-sm font-semibold text-slate-900">{title}</span>
         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
           {profile ? profile.nickname : '本地草稿'}
+        </span>
+        <span className="text-[10px] text-slate-400">
+          {planning ? '编译中…' : stale ? '参数已改，待重算' : plan ? '已编译' : '未编译'}
         </span>
         <div className="ml-auto flex items-center gap-2">
           <button
@@ -168,7 +166,6 @@ export default function PlanWorkspace() {
           >
             保存
           </button>
-          <ShareActions />
         </div>
       </header>
 
@@ -226,3 +223,4 @@ export default function PlanWorkspace() {
     </div>
   )
 }
+

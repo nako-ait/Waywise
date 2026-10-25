@@ -19,6 +19,8 @@ export type LngLatPath = Array<[number, number]>
 export interface LegEndpoints {
   from: { lng: number; lat: number }
   to: { lng: number; lat: number }
+  /** 这一段的交通方式（逐段覆盖）；不填就用整份路书的方式 */
+  mode?: TravelMode
 }
 
 export interface LegGeometry {
@@ -220,13 +222,14 @@ export async function fetchLegGeometries(
 
   const results: LegGeometry[] = []
   for (const leg of legs) {
-    const key = cacheKey(mode, leg.from, leg.to)
+    const legMode = leg.mode ?? mode
+    const key = cacheKey(legMode, leg.from, leg.to)
     const cached = cache.get(key)
     if (cached && cached.resolvedMode !== 'none') {
       results.push(cached)
       continue
     }
-    const geometry = await resolveLeg(AMap, leg, mode)
+    const geometry = await resolveLeg(AMap, leg, legMode)
     if (geometry.resolvedMode !== 'none') cache.set(key, geometry)
     results.push(geometry)
     await sleep(SERIAL_GAP_MS)

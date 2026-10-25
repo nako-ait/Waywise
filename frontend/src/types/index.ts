@@ -192,6 +192,8 @@ export interface PlanRequest {
   destinations: Destination[]
   days: number
   mode: TravelMode
+  /** 逐段覆盖：目的地 id → 该段交通方式；"__return__" 表示回酒店那一段 */
+  legModes?: Record<string, TravelMode>
   weights: Weights
   naturalLanguage?: string
   options?: PlanOptions
@@ -354,6 +356,8 @@ export interface SharedTripData {
   destinations: SharedDestination[]
   days?: number
   mode?: TravelMode
+  /** 逐段覆盖：目的地 id → 交通方式；"__return__" 表示回程 */
+  legModes?: Record<string, TravelMode>
   weights?: Partial<Weights>
   options?: {
     dayStartTime?: string

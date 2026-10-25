@@ -1,7 +1,6 @@
-import { useEffect } from 'react'
+﻿import { useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import MapView from '@/components/MapView'
-import ShareActions from '@/components/ShareActions'
 import TimelineVertical from '@/components/TimelineVertical'
 import { exportTripLongImage } from '@/lib/longImage'
 import { useTripStore } from '@/store/useTripStore'
@@ -44,10 +43,7 @@ export default function TripDetail() {
 
   return (
     <div className="flex h-full flex-col bg-white">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-slate-200 px-4">
-        <button className="text-[11px] text-slate-400 hover:text-slate-700" onClick={() => navigate('/')}>
-          ← 首页
-        </button>
+      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4">
         <span className="text-sm font-semibold text-slate-900">{record.title}</span>
         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{record.group}</span>
         <div className="ml-auto flex items-center gap-2">
@@ -63,7 +59,6 @@ export default function TripDetail() {
           >
             继续编辑
           </button>
-          <ShareActions />
         </div>
       </header>
 
@@ -78,3 +73,4 @@ export default function TripDetail() {
     </div>
   )
 }
+

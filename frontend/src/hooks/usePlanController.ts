@@ -22,6 +22,13 @@ export function usePlanController() {
       destinations: s.destinations.filter((d) => d.selected),
       days: s.days,
       mode: s.mode,
+      // 逐段覆盖：只带上"还存在的点"，避免残留已删地点的覆盖
+      legModes: Object.fromEntries(
+        Object.entries(s.legModes).filter(
+          ([key]) =>
+            key === '__return__' || s.destinations.some((d) => d.id === key && d.selected),
+        ),
+      ),
       weights: s.weights,
       options: {
         dayStartTime: s.options.dayStartTime,

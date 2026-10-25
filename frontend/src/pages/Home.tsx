@@ -1,15 +1,16 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DEMO_ROUTES } from '@/data/demoRoutes'
 import { SHANGHAI_POIS } from '@/data/shanghaiPois'
 import { useTripStore, type NewDestinationInput } from '@/store/useTripStore'
-import ImportDialog from '@/components/ImportDialog'
 
-/** 首页：一句话起手 + 三条示例 + 最近路书 + 导入口令 */
+/**
+ * 首页：推荐线路做成上方悬浮气泡，AI 输入框沉到页面底部。
+ * 点气泡 = 直接用这份示例进工作台；底部输入框 = 一句话起手。
+ */
 export default function Home() {
   const navigate = useNavigate()
   const trips = useTripStore((s) => s.trips)
-  const profile = useTripStore((s) => s.profile)
   const setPendingPrompt = useTripStore((s) => s.setPendingPrompt)
   const setHotel = useTripStore((s) => s.setHotel)
   const setMode = useTripStore((s) => s.setMode)
@@ -19,7 +20,6 @@ export default function Home() {
   const showToast = useTripStore((s) => s.showToast)
 
   const [prompt, setPrompt] = useState('')
-  const [importOpen, setImportOpen] = useState(false)
 
   function start() {
     const text = prompt.trim()
@@ -58,46 +58,73 @@ export default function Home() {
     navigate('/plan')
   }
 
+  const bubbleStyle = [
+    { left: '7%', top: '30%', rotate: '-3deg', delay: '0s' },
+    { left: '39%', top: '24%', rotate: '2deg', delay: '1.4s' },
+    { left: '68%', top: '33%', rotate: '3deg', delay: '2.8s' },
+  ]
+
   return (
-    <div className="flex h-full flex-col bg-white">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-5">
-        <div className="flex items-baseline gap-2">
-          <span className="text-sm font-bold text-slate-900">路书编译师</span>
-          <span className="text-[11px] text-slate-400">TripCompiler · 上海</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] text-slate-600 hover:bg-slate-50"
-            onClick={() => setImportOpen(true)}
-          >
-            导入行程
-          </button>
-          <button
-            className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] text-slate-600 hover:bg-slate-50"
-            onClick={() => navigate('/me')}
-          >
-            {profile ? profile.nickname : '登录 / 我的'}
-          </button>
-          <button
-            className="rounded-lg px-2.5 py-1.5 text-[11px] text-slate-400 hover:text-slate-700"
-            onClick={() => navigate('/plan')}
-          >
-            手动规划 →
-          </button>
-        </div>
-      </header>
-
-      <main className="min-h-0 flex-1 overflow-y-auto tc-scroll">
-        <section className="mx-auto max-w-[820px] px-6 pb-10 pt-16 text-center">
-          <h1 className="text-[32px] font-bold leading-tight tracking-tight text-slate-900">
-            想去哪、玩几天、怎么玩？
-          </h1>
-          <p className="mx-auto mt-3 max-w-[560px] text-[13px] leading-6 text-slate-500">
-            一句话说清楚。AI 会先把地点标到地图上，再和你确认天数、交通、节奏，
-            最后编译成一份带时间轴的路书。
+    <div className="relative flex h-full flex-col overflow-hidden bg-[linear-gradient(180deg,#ffffff_0%,#f6f9fc_55%,#eef4fa_100%)]">
+      {/* 上方：悬浮的推荐路线气泡 */}
+      <div className="relative min-h-0 flex-1">
+        <div className="absolute left-1/2 top-10 w-full -translate-x-1/2 text-center">
+          <h1 className="text-[26px] font-bold tracking-tight text-slate-900">今天想去哪逛逛？</h1>
+          <p className="mt-1.5 text-[12px] text-slate-500">
+            点一个现成线路，或者直接在下面说一句话
           </p>
+        </div>
 
-          <div className="mx-auto mt-8 max-w-[680px] rounded-2xl border border-slate-300 bg-white p-4 text-left shadow-[0_18px_40px_-32px_rgba(15,23,42,.6)]">
+        {DEMO_ROUTES.map((route, index) => {
+          const style = bubbleStyle[index] ?? bubbleStyle[0]
+          return (
+            <button
+              key={route.id}
+              className="tc-bubble group absolute w-[300px] rounded-3xl border border-white/70 bg-white/85 px-5 py-4 text-left shadow-[0_18px_38px_-24px_rgba(15,23,42,.55)] backdrop-blur transition-colors hover:border-slate-300 hover:bg-white"
+              style={
+                {
+                  left: style.left,
+                  top: style.top,
+                  animationDelay: style.delay,
+                  '--tc-rotate': style.rotate,
+                } as CSSProperties
+              }
+              onClick={() => loadDemo(route.id)}
+              title={route.desc}
+            >
+              <div className="text-[15px] font-semibold text-slate-900">{route.name}</div>
+              <div className="mt-1 line-clamp-2 text-[11.5px] leading-5 text-slate-500">
+                {route.desc}
+              </div>
+              <div className="mt-2 flex items-center gap-1.5 text-[10px] text-slate-400">
+                <span className="rounded-full bg-slate-100 px-2 py-0.5">{route.days} 天</span>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5">{route.poiNames.length} 个地点</span>
+                <span className="ml-auto text-slate-500 group-hover:text-slate-900">载入 →</span>
+              </div>
+            </button>
+          )
+        })}
+
+        {trips.length > 0 && (
+          <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 text-[11px] text-slate-400">
+            最近：
+            {trips.slice(0, 3).map((trip) => (
+              <button
+                key={trip.id}
+                className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[11px] text-slate-600 hover:border-slate-400"
+                onClick={() => navigate(`/trip/${trip.id}`)}
+              >
+                {trip.title}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 底部：AI 输入框 */}
+      <div className="shrink-0 px-6 pb-8 pt-2">
+        <div className="mx-auto w-full max-w-[760px]">
+          <div className="rounded-2xl border border-slate-300 bg-white p-3 shadow-[0_20px_44px_-30px_rgba(15,23,42,.6)]">
             <textarea
               rows={2}
               value={prompt}
@@ -105,17 +132,23 @@ export default function Home() {
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) start()
               }}
-              placeholder="带爸妈玩两天，想去朱家角、七宝老街，别安排太累，住静安寺"
-              className="w-full resize-none text-sm leading-6 text-slate-800 outline-none placeholder:text-slate-400"
+              placeholder="告诉我你想怎么玩：去哪、几天、和谁、累不累…"
+              className="w-full resize-none bg-transparent text-sm leading-6 text-slate-800 outline-none placeholder:text-slate-400"
             />
-            <div className="mt-2 flex items-center justify-between">
+            <div className="mt-1 flex items-center justify-between">
               <div className="flex gap-1.5">
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">解析地点</span>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">天数</span>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">少走路</span>
+                {['2 天亲子', '少走路', '公交优先'].map((chip) => (
+                  <button
+                    key={chip}
+                    className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500 hover:bg-slate-200"
+                    onClick={() => setPrompt((prev) => (prev ? `${prev}，${chip}` : chip))}
+                  >
+                    {chip}
+                  </button>
+                ))}
               </div>
               <button
-                className="rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:bg-slate-300"
+                className="rounded-lg bg-slate-900 px-4 py-2 text-[13px] font-medium text-white hover:bg-slate-800 disabled:bg-slate-300"
                 onClick={start}
                 disabled={!prompt.trim()}
               >
@@ -123,60 +156,12 @@ export default function Home() {
               </button>
             </div>
           </div>
-
-          <div className="mt-4 text-[11px] text-slate-400">
-            或者试试：
-            <span className="ml-1 inline-flex gap-1.5">
-              {DEMO_ROUTES.map((route) => (
-                <button
-                  key={route.id}
-                  className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] text-slate-600 hover:border-slate-400 hover:text-slate-900"
-                  onClick={() => loadDemo(route.id)}
-                  title={route.desc}
-                >
-                  {route.name}
-                </button>
-              ))}
-            </span>
-          </div>
-        </section>
-
-        {trips.length > 0 && (
-          <section className="mx-auto max-w-[820px] px-6 pb-16">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-xs font-semibold text-slate-700">最近的路书</h2>
-              <button className="text-[11px] text-slate-400 hover:text-slate-700" onClick={() => navigate('/me')}>
-                全部 →
-              </button>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {trips.slice(0, 3).map((trip) => (
-                <button
-                  key={trip.id}
-                  className="rounded-xl border border-slate-200 bg-white p-3 text-left transition-colors hover:border-slate-400"
-                  onClick={() => navigate(`/trip/${trip.id}`)}
-                >
-                  <div className="truncate text-[12px] font-semibold text-slate-900">{trip.title}</div>
-                  <div className="mt-1 text-[10px] text-slate-400">
-                    {trip.snapshot.days ?? 1} 天 · {trip.snapshot.destinations.length} 个地点
-                  </div>
-                  <div className="mt-0.5 text-[10px] text-slate-300">{trip.group}</div>
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-      </main>
-
-      <footer className="shrink-0 border-t border-slate-100 px-5 py-2 text-[10px] text-slate-300">
-        路书编译师 1.1 · AI 规划 · 口令分享 · 上海
-      </footer>
-
-      <ImportDialog
-        open={importOpen}
-        onClose={() => setImportOpen(false)}
-        onImported={() => navigate('/plan')}
-      />
+          <p className="mt-2 text-center text-[10px] text-slate-400">
+            AI 会先标点、再问清细节，最后编译成一份带时间轴的路书 · 1.1
+          </p>
+        </div>
+      </div>
     </div>
   )
 }
+

@@ -195,20 +195,30 @@ async def _plan_one_day(
 
     # ---- 逐段精确路径（只对最终顺序取，调用量 = 段数） ----
     order_with_hotel = [0] + order + [0]
+    # 逐段交通方式：优先用请求里的 legModes（目的地 id → 方式，__return__ 表示回程）
+    leg_modes_req = req.legModes or {}
+    leg_mode_keys: list[str] = []
+    for _a, _b in zip(order_with_hotel, order_with_hotel[1:]):
+        if _b == 0:
+            raw_mode = leg_modes_req.get("__return__", mode_spec.key)
+        else:
+            raw_mode = leg_modes_req.get(index_to_dest[_b].id, mode_spec.key)
+        leg_mode_keys.append(get_mode(raw_mode).key)
+
     legs = (
         await asyncio.gather(
             *[
                 leg_route(
                     points[a],
                     points[b],
-                    mode_spec.key,
+                    leg_mode,
                     matrix,
                     a,
                     b,
                     # 权重传下去：公交段要据此挑「最优线路」（直达优先 + 分钟当量最优）
                     dict(req.weights.model_dump()),
                 )
-                for a, b in zip(order_with_hotel, order_with_hotel[1:])
+                for (a, b), leg_mode in zip(zip(order_with_hotel, order_with_hotel[1:]), leg_mode_keys)
             ]
         )
         if len(order_with_hotel) > 1
@@ -241,7 +251,7 @@ async def _plan_one_day(
             stayMin=int(round(stop.stay)),
             lunchMin=lunch_min if stop.index == lunch_index else 0,
             transportFromPrev=TransportLeg(
-                mode=mode_spec.key,
+                mode=leg_mode_keys[index] if index < len(leg_mode_keys) else mode_spec.key,
                 durationMin=round(stop.leg.duration_min, 1),
                 cost=round(stop.leg.cost, 2),
                 distanceKm=round(stop.leg.distance_km, 2),
@@ -253,7 +263,7 @@ async def _plan_one_day(
                 transitLabel=getattr(stop.leg, "transit_label", None),
             ),
         )
-        for stop in raw_stops
+        for index, stop in enumerate(raw_stops)
     ]
 
     stats = PlanDayStats(
@@ -271,7 +281,7 @@ async def _plan_one_day(
     if legs and order:
         back = legs[-1]
         return_leg = TransportLeg(
-            mode=mode_spec.key,
+            mode=leg_mode_keys[-1] if leg_mode_keys else mode_spec.key,
             durationMin=round(back.duration_min, 1),
             cost=round(back.cost, 2),
             distanceKm=round(back.distance_km, 2),

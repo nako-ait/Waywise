@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { fromHereNavUrl, navHint, previousPointFor, stopNavUrl } from '@/lib/amapNav'
 import { formatMinutes, formatMoney } from '@/lib/geo'
 import { isClosedToday } from '@/lib/amapParse'
-import { modeStyle } from '@/lib/routeStyle'
+import { MODE_ORDER, MODE_STYLES, modeStyle } from '@/lib/routeStyle'
 import { useDayScope } from '@/lib/routeOrder'
+import { usePlanController } from '@/hooks/usePlanController'
 import { useTripStore } from '@/store/useTripStore'
+import AddStopDialog from './AddStopDialog'
 import TransitOptions from './TransitOptions'
 import type { TravelMode } from '@/types'
 
@@ -20,8 +22,50 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
   const setActiveDay = useTripStore((s) => s.setActiveDay)
   const destinations = useTripStore((s) => s.destinations)
   const weights = useTripStore((s) => s.weights)
+  const setLegMode = useTripStore((s) => s.setLegMode)
+  const updateDestination = useTripStore((s) => s.updateDestination)
+  const showToast = useTripStore((s) => s.showToast)
+  const { run, planning } = usePlanController()
   const [showDetail, setShowDetail] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
   const { day, dayIndex, isMultiDay, dayCount } = useDayScope()
+
+  /** 改完一段的方式/删掉一个点之后，立刻重算整份路书 */
+  function recompile(action: () => void, message: string) {
+    action()
+    showToast('success', message)
+    // 等 store 落地后再重算（run 内部用 getState 取值）
+    window.setTimeout(() => void run(), 0)
+  }
+
+  function legSwitcher(legKey: string | null, current: TravelMode) {
+    if (readOnly) return null
+    return (
+      <span className="flex flex-wrap items-center gap-0.5">
+        {MODE_ORDER.map((key) => (
+          <button
+            key={key}
+            className={`rounded px-1 py-0.5 text-[9px] leading-3 transition-colors ${
+              current === key
+                ? 'bg-slate-900 text-white'
+                : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+            }`}
+            title={`这一段改成${MODE_STYLES[key].label}`}
+            disabled={planning || !legKey}
+            onClick={() => {
+              if (!legKey) return
+              recompile(
+                () => setLegMode(legKey, key),
+                `这一段改成${MODE_STYLES[key].label}，正在重算`,
+              )
+            }}
+          >
+            {MODE_STYLES[key].label}
+          </button>
+        ))}
+      </span>
+    )
+  }
 
   if (!plan || !day || !day.stops.length) {
     return (
@@ -100,10 +144,14 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
           const closedDays = destinations.find((item) => item.id === stop.id)?.closedWeekdays
           return (
             <div key={stop.id}>
-              {/* 交通段 */}
-              <div className="flex items-center gap-2 py-1 pl-7 text-[10px] text-slate-400">
+              {/* 交通段：可以直接改这一段的方式 */}
+              <div className="flex flex-wrap items-center gap-2 py-1 pl-7 text-[10px] text-slate-400">
                 <span className="h-3 w-px bg-slate-200" />
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">{style.label}</span>
+                {readOnly ? (
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">{style.label}</span>
+                ) : (
+                  legSwitcher(stop.id, (leg?.mode as TravelMode) ?? currentMode)
+                )}
                 <span>{leg ? `${Math.round(leg.durationMin)} 分 · ${leg.distanceKm} km` : '—'}</span>
                 {leg?.approx && <span>*</span>}
                 <TransitOptions options={leg?.transitOptions} />
@@ -119,8 +167,23 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
                 <div className="min-w-0 flex-1 pb-2">
                   <div className="flex items-start justify-between gap-2">
                     <span className="truncate text-[13px] font-medium text-slate-900">{stop.name}</span>
-                    <span className="shrink-0 text-[10px] text-slate-400">
+                    <span className="flex shrink-0 items-center gap-1.5 text-[10px] text-slate-400">
                       {stop.arriveTime}–{stop.leaveTime}
+                      {!readOnly && (
+                        <button
+                          className="text-slate-300 hover:text-red-500"
+                          title="从路书里移除这个点"
+                          disabled={planning}
+                          onClick={() =>
+                            recompile(
+                              () => updateDestination(stop.id, { selected: false }),
+                              `已移除「${stop.name}」`,
+                            )
+                          }
+                        >
+                          ×
+                        </button>
+                      )}
                     </span>
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-slate-400">
@@ -161,9 +224,13 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
         })}
 
         {/* 回酒店 */}
-        <div className="flex items-center gap-2 py-1 pl-7 text-[10px] text-slate-400">
+        <div className="flex flex-wrap items-center gap-2 py-1 pl-7 text-[10px] text-slate-400">
           <span className="h-3 w-px bg-slate-200" />
-          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">{returnMode.label}</span>
+          {readOnly ? (
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">{returnMode.label}</span>
+          ) : (
+            legSwitcher('__return__', (day.returnLeg?.mode as TravelMode) ?? returnMode.key)
+          )}
           <span>
             {day.returnLeg
               ? `${Math.round(day.returnLeg.durationMin)} 分 · ${day.returnLeg.distanceKm} km`
@@ -180,6 +247,16 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
             <div className="text-[10px] text-slate-400">预计 {day.returnTime ?? '—'} 到达</div>
           </div>
         </div>
+
+        {!readOnly && (
+          <button
+            className="mt-2 w-full rounded-lg border border-dashed border-slate-300 py-1.5 text-[11px] text-slate-500 transition-colors hover:border-slate-500 hover:text-slate-800 disabled:opacity-50"
+            onClick={() => setAddOpen(true)}
+            disabled={planning}
+          >
+            + 添加地点
+          </button>
+        )}
       </div>
 
       {/* 底部：解释 */}
@@ -200,6 +277,12 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
           </div>
         )}
       </div>
+
+      <AddStopDialog
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onAdded={() => window.setTimeout(() => void run(), 0)}
+      />
     </div>
   )
 }
