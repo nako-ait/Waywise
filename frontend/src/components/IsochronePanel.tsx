@@ -57,7 +57,7 @@ export default function IsochronePanel() {
           酒店便利度
           <span className="ml-1.5 text-[11px] font-normal text-slate-400">等时圈</span>
         </h2>
-        <span className="text-[11px] text-slate-400">{open ? '收起 ▲' : '展开 ▼'}</span>
+        <span className="text-[11px] text-slate-400">{open ? '收起' : '展开'}</span>
       </button>
 
       {open && (
@@ -110,7 +110,7 @@ export default function IsochronePanel() {
             以「{hotel.name}」为中心，按当前交通方式计算可达范围
           </p>
 
-          {error && <p className="text-[11px] text-red-600">⚠ {error}</p>}
+          {error && <p className="text-[11px] text-red-600">{error}</p>}
 
           {data && (
             <div className="space-y-1.5">
@@ -118,8 +118,8 @@ export default function IsochronePanel() {
                 <span
                   className={`rounded px-1.5 py-0.5 text-[10px] ${
                     data.dataSource === 'amap'
-                      ? 'bg-emerald-50 text-emerald-600'
-                      : 'bg-amber-50 text-amber-600'
+                      ? 'bg-slate-100 text-slate-600'
+                      : 'bg-slate-100 text-slate-500'
                   }`}
                 >
                   {data.dataSource === 'amap' ? '高德真实耗时' : '离线估算'}

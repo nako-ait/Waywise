@@ -17,6 +17,7 @@ import type {
   Hotel,
   IsochroneResponse,
   PlanResponse,
+  SharedTripData,
   TravelMode,
   Weights,
 } from '@/types'
@@ -81,6 +82,8 @@ export interface TripState {
   hotelConfirmed: boolean
   /** 目的地全集（候选 + 选中） */
   destinations: Destination[]
+  /** 全局轻提示（分享 / 导入的结果） */
+  toast: { id: number; kind: 'success' | 'error'; text: string } | null
 
   // —— 规划参数（模块 2/3 使用，先落库避免后面改结构） ——
   days: number
@@ -163,6 +166,12 @@ export interface TripState {
 
   // —— 模块 5 ——
   setBackend: (status: 'unknown' | 'ok' | 'down', info: HealthInfo | null) => void
+
+  // —— 模块 6：行程分享 ——
+  /** 用导入的行程整体替换当前状态（酒店 / 目的地 / 天数 / 方式 / 权重 / 时间设置） */
+  setFullTripState: (data: SharedTripData) => void
+  showToast: (kind: 'success' | 'error', text: string) => void
+  clearToast: () => void
 }
 
 /** 输入指纹：酒店 + 选中集合 + 方式 + 天数 + 权重 + 时间设置 */
@@ -202,12 +211,117 @@ function makeDestination(input: NewDestinationInput): Destination {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* 分享 / 导入：把外部数据洗一遍再用，绝不信任任何字段                    */
+/* ------------------------------------------------------------------ */
+
+const TRAVEL_MODES: TravelMode[] = ['walk', 'transit', 'subway', 'taxi', 'drive']
+const DEST_SOURCES: DestinationSource[] = ['map-click', 'search', 'ai', 'import']
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(min, n))
+}
+
+function normalizeHotel(raw: unknown): Hotel | null {
+  if (!raw || typeof raw !== 'object') return null
+  const h = raw as Partial<Hotel>
+  const lng = Number(h.lng)
+  const lat = Number(h.lat)
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null
+  if (lng < -180 || lng > 180 || lat < -90 || lat > 90) return null
+  const name = typeof h.name === 'string' && h.name.trim() ? h.name.trim() : '导入的起点'
+  return { name, lng, lat, address: typeof h.address === 'string' ? h.address : undefined }
+}
+
+function normalizeDestinations(raw: unknown): Destination[] {
+  if (!Array.isArray(raw)) return []
+  const out: Destination[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const d = item as Partial<Destination>
+    const lng = Number(d.lng)
+    const lat = Number(d.lat)
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue
+    // 同一个位置 30m 内视为重复（导入数据也可能带重复点）
+    if (out.some((exist) => haversineM(exist, { lng, lat }) < DEDUP_RADIUS_M)) continue
+    out.push({
+      // 重新发 id：避免与本地已有目的地冲突
+      id: uid('d'),
+      name: typeof d.name === 'string' && d.name.trim() ? d.name.trim() : '未命名地点',
+      lng,
+      lat,
+      selected: d.selected !== false,
+      source: DEST_SOURCES.includes(d.source as DestinationSource)
+        ? (d.source as DestinationSource)
+        : 'import',
+      stayMin: clampNumber(d.stayMin, 5, 600, 60),
+      openTime: typeof d.openTime === 'string' ? d.openTime : undefined,
+      closeTime: typeof d.closeTime === 'string' ? d.closeTime : undefined,
+      tags: Array.isArray(d.tags) ? d.tags.filter((t): t is string => typeof t === 'string') : undefined,
+      address: typeof d.address === 'string' ? d.address : undefined,
+      amapId: typeof d.amapId === 'string' ? d.amapId : undefined,
+      hoursRaw: typeof d.hoursRaw === 'string' ? d.hoursRaw : undefined,
+      closedWeekdays: Array.isArray(d.closedWeekdays)
+        ? d.closedWeekdays.filter((n): n is number => Number.isInteger(n))
+        : undefined,
+    })
+  }
+  return out
+}
+
+function normalizeWeights(raw: unknown): Weights {
+  const w = (raw ?? {}) as Partial<Weights>
+  return {
+    time: clampNumber(w.time, 0, 1, DEFAULT_WEIGHTS.time),
+    convenience: clampNumber(w.convenience, 0, 1, DEFAULT_WEIGHTS.convenience),
+    cost: clampNumber(w.cost, 0, 1, DEFAULT_WEIGHTS.cost),
+    walking: clampNumber(w.walking, 0, 1, DEFAULT_WEIGHTS.walking),
+  }
+}
+
+function normalizeOptions(raw: unknown): TripOptions {
+  const o = (raw ?? {}) as Partial<TripOptions>
+  const time = (value: unknown, fallback: string) =>
+    typeof value === 'string' && /^\d{1,2}:\d{2}$/.test(value) ? value : fallback
+  return {
+    dayStartTime: time(o.dayStartTime, DEFAULT_OPTIONS.dayStartTime),
+    dayEndTime: time(o.dayEndTime, DEFAULT_OPTIONS.dayEndTime),
+    lunchBreakMin: clampNumber(o.lunchBreakMin, 0, 180, DEFAULT_OPTIONS.lunchBreakMin),
+  }
+}
+
+function normalizeMode(raw: unknown): TravelMode {
+  return TRAVEL_MODES.includes(raw as TravelMode) ? (raw as TravelMode) : 'transit'
+}
+
+/** 收集当前行程快照（分享用）：只取"输入态"，不含已编译的路书 */
+export function snapshotTrip(state: TripState): SharedTripData {
+  return {
+    version: 1,
+    createdAt: new Date().toISOString(),
+    hotel: {
+      name: state.hotel.name,
+      address: state.hotel.address,
+      lng: state.hotel.lng,
+      lat: state.hotel.lat,
+    },
+    destinations: state.destinations.map(({ id: _id, ...rest }) => rest),
+    days: state.days,
+    mode: state.mode,
+    weights: { ...state.weights },
+    options: { ...state.options },
+  }
+}
+
 export const useTripStore = create<TripState>()(
   persist(
     (set, get) => ({
       hotel: DEFAULT_HOTEL,
       hotelConfirmed: false,
       destinations: [],
+      toast: null,
       days: 1,
       mode: 'transit',
       weights: { ...DEFAULT_WEIGHTS },
@@ -343,6 +457,38 @@ export const useTripStore = create<TripState>()(
 
       // —— 模块 5 ——
       setBackend: (backendStatus, backendInfo) => set({ backendStatus, backendInfo }),
+
+      // —— 模块 6：行程分享 ——
+      setFullTripState: (data) => {
+        const hotel = normalizeHotel(data?.hotel) ?? get().hotel
+        const destinations = normalizeDestinations(data?.destinations)
+        set({
+          hotel,
+          hotelConfirmed: true,
+          destinations,
+          days: Math.round(clampNumber(data?.days, 1, 7, 1)),
+          mode: normalizeMode(data?.mode),
+          weights: normalizeWeights(data?.weights),
+          options: normalizeOptions(data?.options),
+          // 导入的是"输入态"，旧路书必须清掉，交给编译器重算
+          plan: null,
+          planSignature: null,
+          planError: null,
+          planning: false,
+          activeDay: 0,
+          isochrone: null,
+          isochroneVisible: false,
+          isochroneLoading: false,
+          aiExplain: null,
+          // 视野跟到新酒店，导入后地图立刻有反应
+          view: { lng: hotel.lng, lat: hotel.lat, zoom: 13.5 },
+        })
+      },
+
+      showToast: (kind, text) =>
+        set({ toast: { id: Date.now() + Math.floor(Math.random() * 1000), kind, text } }),
+
+      clearToast: () => set({ toast: null }),
     }),
     {
       name: 'tripcompiler:v1',

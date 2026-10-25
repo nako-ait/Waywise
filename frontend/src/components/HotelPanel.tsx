@@ -74,12 +74,12 @@ export default function HotelPanel() {
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-hotel" />
           出发酒店
-          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-normal text-emerald-700">
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal text-slate-500">
             固定起点
           </span>
         </h2>
         {!hotelConfirmed && (
-          <span className="text-[11px] text-amber-600">当前为默认值，建议搜索确认</span>
+          <span className="text-[11px] text-slate-400">当前为默认值，建议搜索确认</span>
         )}
       </div>
 
@@ -101,7 +101,7 @@ export default function HotelPanel() {
           }}
         />
         <button
-          className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="shrink-0 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
           onClick={() => void handleSearch()}
           disabled={loading}
         >
@@ -120,7 +120,7 @@ export default function HotelPanel() {
         {QUICK_KEYWORDS.map((k) => (
           <button
             key={k}
-            className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 hover:border-blue-300 hover:text-blue-600"
+            className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 hover:border-slate-400 hover:text-slate-700"
             onClick={() => {
               setKeyword(k)
               void handleSearch(k)
@@ -131,14 +131,14 @@ export default function HotelPanel() {
         ))}
       </div>
 
-      {message && <p className="mt-2 text-[11px] text-amber-600">{message}</p>}
+      {message && <p className="mt-2 text-[11px] text-slate-500">{message}</p>}
 
       {results.length > 0 && (
         <ul className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-slate-200 tc-scroll">
           {results.map((p, i) => (
             <li key={`${p.name}-${i}`}>
               <button
-                className="w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-blue-50"
+                className="w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
                 onClick={() => pick(p)}
               >
                 <div className="text-sm text-slate-800">{p.name}</div>

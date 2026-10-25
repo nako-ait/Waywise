@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { formatClosedWeekdays, isClosedToday } from '@/lib/amapParse'
-import { poiIcon } from '@/lib/poiIcon'
 import type { Destination } from '@/types'
 
 const SOURCE_LABEL: Record<Destination['source'], string> = {
@@ -53,7 +52,7 @@ export default function DestinationRow({
   return (
     <li
       className={`group flex items-start gap-2 border-b border-slate-100 px-3 py-2 transition-colors ${
-        selected ? 'bg-orange-50/60' : 'hover:bg-slate-50'
+        selected ? 'bg-slate-50' : 'hover:bg-slate-50'
       }`}
     >
       {/* 序号 / 灰点：点击切换选中 */}
@@ -106,8 +105,7 @@ export default function DestinationRow({
             }}
             title={`${dest.name}（双击改名）`}
           >
-            {/* 与地图上的标记用同一个分类图标，列表和地图对得上 */}
-            <span className="shrink-0 text-[11px]">{poiIcon(dest.tags)}</span>
+            {/* 与地图上的序号针保持一致，列表和地图对得上 */}
             <span className="truncate">{dest.name}</span>
           </button>
         )}
@@ -116,7 +114,7 @@ export default function DestinationRow({
           <span>{SOURCE_LABEL[dest.source]}</span>
           {dest.openTime && dest.closeTime && (
             <span>
-              🕘 {dest.openTime}–{dest.closeTime}
+              {dest.openTime}–{dest.closeTime}
             </span>
           )}
           {/* 「周一闭馆」这类星期信息只在界面提示，不进求解器（模型没有星期维度） */}
@@ -164,14 +162,14 @@ export default function DestinationRow({
           onClick={onLocate}
           title="在地图上定位"
         >
-          📍 定位
+          定位
         </button>
         <button
           className="rounded px-1 text-[11px] text-red-500 hover:bg-red-50"
           onClick={onRemove}
           title="删除该点"
         >
-          🗑 删除
+          删除
         </button>
       </div>
     </li>

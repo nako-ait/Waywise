@@ -18,7 +18,6 @@ TravelMode = Literal["walk", "transit", "subway", "taxi", "drive"]
 class ModeSpec:
     key: str
     label: str
-    icon: str
     color: str
     speed_kmh: float          # 市内平均旅行速度（含起停与等待）
     detour: float             # 绕行系数 = 路网距离 / 直线距离
@@ -36,31 +35,31 @@ class ModeSpec:
 
 MODE_SPECS: dict[str, ModeSpec] = {
     "walk": ModeSpec(
-        key="walk", label="步行", icon="🚶", color="#16a34a",
+        key="walk", label="步行", color="#475569",
         speed_kmh=4.5, detour=1.25, fare_base=0.0, fare_per_km=0.0, fare_free_km=0.0,
         walk_ratio=1.0, walk_cap_km=999.0, transfer_min=0.0, transfer_km=0.0, comfort_min=0.0,
         amap_distance_type=3, amap_direction="walking",
     ),
     "transit": ModeSpec(
-        key="transit", label="公交", icon="🚌", color="#2563eb",
+        key="transit", label="公交", color="#475569",
         speed_kmh=17.0, detour=1.45, fare_base=2.0, fare_per_km=0.12, fare_free_km=10.0,
         walk_ratio=0.35, walk_cap_km=1.2, transfer_min=9.0, transfer_km=5.0, comfort_min=3.0,
         amap_distance_type=1, amap_direction="transit",
     ),
     "subway": ModeSpec(
-        key="subway", label="地铁", icon="🚇", color="#7c3aed",
+        key="subway", label="地铁", color="#475569",
         speed_kmh=30.0, detour=1.5, fare_base=3.0, fare_per_km=0.10, fare_free_km=6.0,
         walk_ratio=0.30, walk_cap_km=1.4, transfer_min=7.0, transfer_km=7.0, comfort_min=4.0,
         amap_distance_type=1, amap_direction="transit",
     ),
     "taxi": ModeSpec(
-        key="taxi", label="打车", icon="🚕", color="#f59e0b",
+        key="taxi", label="打车", color="#475569",
         speed_kmh=24.0, detour=1.35, fare_base=16.0, fare_per_km=2.7, fare_free_km=3.0,
         walk_ratio=0.05, walk_cap_km=0.25, transfer_min=0.0, transfer_km=0.0, comfort_min=1.0,
         amap_distance_type=1, amap_direction="driving",
     ),
     "drive": ModeSpec(
-        key="drive", label="驾车", icon="🚗", color="#0891b2",
+        key="drive", label="驾车", color="#475569",
         speed_kmh=28.0, detour=1.35, fare_base=0.0, fare_per_km=0.8, fare_free_km=0.0,
         walk_ratio=0.15, walk_cap_km=0.6, transfer_min=0.0, transfer_km=0.0, comfort_min=2.0,
         amap_distance_type=1, amap_direction="driving",

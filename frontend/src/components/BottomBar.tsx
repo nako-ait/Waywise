@@ -102,11 +102,11 @@ export default function BottomBar() {
 
       {planError && (
         <span className="max-w-[280px] truncate text-[11px] text-red-600" title={planError}>
-          ⚠ {planError}
+          {planError}
         </span>
       )}
       {toast && !planError && (
-        <span className="max-w-[280px] truncate text-[11px] text-emerald-600" title={toast}>
+        <span className="max-w-[280px] truncate text-[11px] text-slate-500" title={toast}>
           {toast}
         </span>
       )}

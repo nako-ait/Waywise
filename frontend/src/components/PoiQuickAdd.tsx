@@ -8,7 +8,6 @@ import {
   type PlaceSuggestion,
 } from '@/lib/amapSearch'
 import { panTo } from '@/lib/mapInstance'
-import { poiIcon } from '@/lib/poiIcon'
 import { useTripStore, type NewDestinationInput } from '@/store/useTripStore'
 
 /**
@@ -103,12 +102,12 @@ export default function PoiQuickAdd() {
 
       const hours = place.openTime ? `（营业 ${place.openTime}–${place.closeTime}）` : ''
       const closedHint = isClosedToday(place.closedWeekdays)
-        ? `⚠ 今天闭馆（${formatClosedWeekdays(place.closedWeekdays)}）`
+        ? `今天闭馆（${formatClosedWeekdays(place.closedWeekdays)}）`
         : ''
       setTip(
         added
           ? {
-              text: `✅ 已添加「${place.name}」${hours}${closedHint}，并已选中（见下方目的地列表）`,
+              text: `已添加「${place.name}」${hours}${closedHint}，并已选中（见下方目的地列表）`,
               ok: !closedHint,
             }
           : { text: `「${place.name}」已经在列表里了（${skipped} 个重复未重复添加）`, ok: false },
@@ -176,7 +175,7 @@ export default function PoiQuickAdd() {
               onClick={() => setKeyword('')}
               title="清空"
             >
-              ✕
+              ×
             </button>
           )}
         </div>
@@ -194,7 +193,6 @@ export default function PoiQuickAdd() {
                   onClick={() => void addSuggestion(item)}
                   disabled={pendingKey !== null}
                 >
-                  <span className="mt-0.5 shrink-0 text-[13px]">{poiIcon(item.tags)}</span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1">
                       <span className="truncate text-sm text-slate-800">{item.name}</span>
@@ -208,7 +206,7 @@ export default function PoiQuickAdd() {
                         {originLabel(item.origin)}
                       </span>
                       {item.rating && (
-                        <span className="shrink-0 text-[9px] text-amber-600">★{item.rating}</span>
+                        <span className="shrink-0 text-[9px] text-slate-400">{item.rating} 分</span>
                       )}
                     </span>
                     <span className="mt-0.5 block truncate text-[10px] text-slate-400">
@@ -235,8 +233,8 @@ export default function PoiQuickAdd() {
                       </span>
                     ) : null}
                   </span>
-                  <span className="mt-0.5 shrink-0 text-[10px] text-blue-600">
-                    {pendingKey === item.key ? '添加中…' : '添加 ⏎'}
+                  <span className="mt-0.5 shrink-0 text-[10px] text-slate-400">
+                    {pendingKey === item.key ? '添加中…' : '添加'}
                   </span>
                 </button>
               </li>
@@ -255,13 +253,12 @@ export default function PoiQuickAdd() {
             degraded ? 'bg-amber-50 text-amber-700' : 'bg-slate-50 text-slate-500'
           }`}
         >
-          {degraded ? '⚠ ' : ''}
           {notice}
         </p>
       )}
       {!notice && open && items.length > 0 && (
         <p className="mt-1.5 text-[11px] text-slate-400">
-          在线 {onlineCount} 条{localCount ? ` · 本地预置 ${localCount} 条` : ''} · ↑↓ 选择，Enter 添加
+          在线 {onlineCount} 条{localCount ? ` · 本地预置 ${localCount} 条` : ''} · 方向键选择，回车添加
         </p>
       )}
 

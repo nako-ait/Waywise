@@ -520,7 +520,7 @@ def _explain_day(
 
     spec = get_mode(req.mode)
     parts = [
-        f"以{spec.icon}{spec.label}为主要交通方式，依次游览 {len(stops)} 个目的地后返回酒店：",
+        f"以{spec.label}为主要交通方式，依次游览 {len(stops)} 个目的地后返回酒店：",
         " → ".join(stop.name for stop in stops) + "。",
     ]
     first = stops[0]
@@ -577,7 +577,7 @@ def _explain_overall(
             f"再对每天分别求最优顺序（每天从酒店出发、回到酒店）。"
         )
     else:
-        parts.append(f"「{req.hotel.name}」出发的一日路书，以{spec.icon}{spec.label}为主要交通方式。")
+        parts.append(f"「{req.hotel.name}」出发的一日路书，以{spec.label}为主要交通方式。")
 
     for result in results:
         stops = result.day.stops

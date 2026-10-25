@@ -13,7 +13,7 @@ export default function ModeSwitch() {
   const { run, planning } = usePlanController()
 
   return (
-    <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
+    <div className="flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5">
       {MODE_ORDER.map((key) => {
         const style = MODE_STYLES[key]
         const active = key === mode
@@ -27,12 +27,10 @@ export default function ModeSwitch() {
               // setMode 是同步的，run() 内部用 getState() 取到的一定是新方式
               if (plan) void run()
             }}
-            className={`flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-60 ${
-              active ? 'text-white shadow-sm' : 'text-slate-600 hover:bg-white'
+            className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-60 ${
+              active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-white'
             }`}
-            style={active ? { backgroundColor: style.color } : undefined}
           >
-            <span>{style.icon}</span>
             {style.label}
           </button>
         )

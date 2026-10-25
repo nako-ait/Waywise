@@ -40,7 +40,7 @@ export default function Timeline() {
     <section className="flex h-44 shrink-0 flex-col border-t border-slate-200 bg-white">
       {/* 头部：统计 + 元信息 */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-100 px-4 py-2">
-        <h2 className="text-sm font-semibold text-slate-800">
+        <h2 className="text-sm font-semibold text-slate-900">
           {isMultiDay ? day.title ?? `第${dayIndex + 1}天` : '路线时间轴'}
           <span className="ml-1.5 text-[11px] font-normal text-slate-400">
             {day.date} · {day.stops.length} 站
@@ -49,25 +49,23 @@ export default function Timeline() {
         </h2>
 
         <span className="flex items-center gap-1 text-[11px] text-slate-500">
-          🚶 步行 <b className="text-slate-700">{day.stats.totalWalkKm} km</b>
+          步行 <b className="font-medium text-slate-800">{day.stats.totalWalkKm} km</b>
         </span>
         <span className="flex items-center gap-1 text-[11px] text-slate-500">
-          ⏱ 交通 <b className="text-slate-700">{formatMinutes(day.stats.totalTransitMin)}</b>
+          交通 <b className="font-medium text-slate-800">{formatMinutes(day.stats.totalTransitMin)}</b>
         </span>
         <span className="flex items-center gap-1 text-[11px] text-slate-500">
-          💰 花费 <b className="text-slate-700">{formatMoney(day.stats.totalCost)}</b>
+          花费 <b className="font-medium text-slate-800">{formatMoney(day.stats.totalCost)}</b>
         </span>
         {day.returnTime && (
           <span className="flex items-center gap-1 text-[11px] text-slate-500">
-            🏨 回酒店 <b className="text-slate-700">{day.returnTime}</b>
+            回酒店 <b className="font-medium text-slate-800">{day.returnTime}</b>
           </span>
         )}
 
         <span
           title={isAmap ? '距离与耗时来自高德 Web 服务实时接口' : '未配置高德 Web 服务 Key，按直线距离 × 绕行系数估算'}
-          className={`rounded px-1.5 py-0.5 text-[10px] ${
-            isAmap ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
-          }`}
+          className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500"
         >
           {isAmap ? '高德实时' : '离线估算'}
         </span>
@@ -88,7 +86,7 @@ export default function Timeline() {
         )}
 
         {stale && (
-          <span className="rounded bg-orange-50 px-1.5 py-0.5 text-[10px] text-orange-600">
+          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">
             参数已变更，请重新编译
           </span>
         )}
@@ -99,7 +97,7 @@ export default function Timeline() {
         )}
 
         <button
-          className="ml-auto text-[11px] text-blue-600 hover:underline"
+          className="ml-auto text-[11px] text-slate-500 hover:text-slate-900 hover:underline"
           onClick={() => setShowDetail((v) => !v)}
         >
           {showDetail ? '收起说明' : '为什么这样排？'}
@@ -110,12 +108,12 @@ export default function Timeline() {
       <div className="tc-scroll min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-4 py-3">
         <div className="flex h-full items-stretch gap-2">
           {/* 起点 */}
-          <div className="flex w-40 shrink-0 flex-col justify-center rounded-lg border-2 border-emerald-300 bg-emerald-50 px-3 py-2">
-            <div className="text-[10px] text-emerald-600">出发</div>
-            <div className="truncate text-sm font-semibold text-emerald-800" title={hotel.name}>
+          <div className="flex w-40 shrink-0 flex-col justify-center rounded-lg border border-slate-300 bg-slate-50 px-3 py-2">
+            <div className="text-[10px] text-slate-400">出发</div>
+            <div className="truncate text-sm font-semibold text-slate-900" title={hotel.name}>
               {hotel.name}
             </div>
-            <div className="text-[10px] text-emerald-600">🏨 固定起点</div>
+            <div className="text-[10px] text-slate-400">固定起点</div>
           </div>
 
           {day.stops.map((stop, index) => {
@@ -127,14 +125,10 @@ export default function Timeline() {
               <div key={stop.id} className="flex shrink-0 items-stretch gap-2">
                 {/* 交通段 */}
                 <div className="flex w-24 flex-col items-center justify-center gap-0.5">
-                  <div
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-base"
-                    style={{ backgroundColor: `${style.color}1a`, color: style.color }}
-                    title={`${style.label}：${leg?.distanceKm ?? 0} km`}
-                  >
-                    {style.icon}
-                  </div>
-                  <div className="text-[10px] font-medium text-slate-600">
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] leading-4 text-slate-500">
+                    {style.label}
+                  </span>
+                  <div className="text-[10px] font-medium text-slate-700">
                     {leg ? `${Math.round(leg.durationMin)} 分` : '—'}
                   </div>
                   <div className="text-[10px] text-slate-400">
@@ -149,9 +143,9 @@ export default function Timeline() {
                 <div className="relative flex w-48 shrink-0 flex-col justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
                   {/* 导航：交给高德 App。用 <a href> 而不是 window.open —— 移动端浏览器
                       会拦截脚本打开的窗口，而用户主动点的 <a> 能可靠唤起 App */}
-                  <div className="absolute right-1 top-1 flex items-center gap-0.5">
+                  <div className="absolute right-1.5 top-1.5 flex items-center gap-1.5">
                     <a
-                      className="rounded px-1 text-[11px] text-slate-300 hover:bg-blue-50 hover:text-blue-600"
+                      className="text-[10px] text-slate-300 hover:text-slate-700"
                       href={stopNavUrl(
                         stop,
                         previousPointFor(day, index, hotel),
@@ -164,24 +158,24 @@ export default function Timeline() {
                         index === 0 ? hotel.name : day.stops[index - 1].name
                       }」到「${stop.name}」`}
                     >
-                      🧭
+                      导航
                     </a>
                     <a
-                      className="rounded px-1 text-[11px] text-slate-300 hover:bg-blue-50 hover:text-blue-600"
+                      className="text-[10px] text-slate-300 hover:text-slate-700"
                       href={fromHereNavUrl(stop, activeMode, weights)}
                       target="_blank"
                       rel="noreferrer"
                       title={`${navHint(activeMode, weights)}：从我当前位置到「${stop.name}」（移动端自动取当前位置）`}
                     >
-                      📍
+                      定位
                     </a>
                   </div>
 
-                  <div className="flex items-center gap-1.5 pr-10">
-                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-picked text-[10px] font-bold text-white">
+                  <div className="flex items-center gap-1.5 pr-14">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-picked text-[10px] font-semibold text-white">
                       {orderMap.get(stop.id) ?? index + 1}
                     </span>
-                    <span className="truncate text-sm font-medium text-slate-800" title={stop.name}>
+                    <span className="truncate text-sm font-medium text-slate-900" title={stop.name}>
                       {stop.name}
                     </span>
                   </div>
@@ -194,8 +188,8 @@ export default function Timeline() {
                       <span className="rounded bg-red-50 px-1 font-medium text-red-600">今天闭馆</span>
                     ) : null}
                     {(stop.lunchMin ?? 0) > 0 && (
-                      <span className="rounded bg-amber-50 px-1 text-amber-600">
-                        🍜 含午餐 {stop.lunchMin} 分
+                      <span className="rounded bg-slate-100 px-1 text-slate-500">
+                        含午餐 {stop.lunchMin} 分
                       </span>
                     )}
                     {leg && leg.cost > 0 && <span>· {formatMoney(leg.cost)}</span>}
@@ -208,17 +202,14 @@ export default function Timeline() {
           {/* 返程 */}
           <div className="flex shrink-0 items-stretch gap-2">
             <div className="flex w-24 flex-col items-center justify-center gap-0.5">
-              <div
-                className="flex h-8 w-8 items-center justify-center rounded-full text-base"
-                style={{ backgroundColor: `${returnMode.color}1a`, color: returnMode.color }}
-              >
-                {returnMode.icon}
-              </div>
-              <div className="text-[10px] font-medium text-slate-600">回酒店</div>
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] leading-4 text-slate-500">
+                {returnMode.label}
+              </span>
+              <div className="text-[10px] font-medium text-slate-700">回酒店</div>
               {/* 显示回程的真实时长/里程，而不是折线的坐标点数 */}
               {day.returnLeg ? (
                 <>
-                  <div className="text-[10px] font-medium text-slate-600">
+                  <div className="text-[10px] font-medium text-slate-700">
                     {Math.round(day.returnLeg.durationMin)} 分
                   </div>
                   <div className="text-[10px] text-slate-400">
@@ -231,10 +222,10 @@ export default function Timeline() {
                 <div className="text-[10px] text-slate-400">—</div>
               )}
             </div>
-            <div className="flex w-40 shrink-0 flex-col justify-center rounded-lg border-2 border-emerald-300 bg-emerald-50 px-3 py-2">
-              <div className="text-[10px] text-emerald-600">结束</div>
-              <div className="truncate text-sm font-semibold text-emerald-800">{hotel.name}</div>
-              <div className="text-[10px] text-emerald-600">预计 {day.returnTime ?? '—'} 到达</div>
+            <div className="flex w-40 shrink-0 flex-col justify-center rounded-lg border border-slate-300 bg-slate-50 px-3 py-2">
+              <div className="text-[10px] text-slate-400">结束</div>
+              <div className="truncate text-sm font-semibold text-slate-900">{hotel.name}</div>
+              <div className="text-[10px] text-slate-400">预计 {day.returnTime ?? '—'} 到达</div>
             </div>
           </div>
         </div>
@@ -245,13 +236,13 @@ export default function Timeline() {
         <div className="max-h-24 shrink-0 overflow-y-auto border-t border-slate-100 bg-slate-50 px-4 py-2 text-[11px] leading-5 text-slate-600 tc-scroll">
           <p>{plan.explanation}</p>
           {(meta?.warnings ?? []).map((warning) => (
-            <p key={warning} className="text-amber-600">
-              ⚠ {warning}
+            <p key={warning} className="text-amber-700">
+              {warning}
             </p>
           ))}
           {(meta?.dropped ?? []).map((item) => (
             <p key={item.id} className="text-red-600">
-              ✖ 未排入「{item.name}」：{item.reason}
+              未排入「{item.name}」：{item.reason}
             </p>
           ))}
           {plan.solver?.legsApprox ? (

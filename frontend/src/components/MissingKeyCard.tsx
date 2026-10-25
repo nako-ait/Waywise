@@ -26,17 +26,19 @@ export default function MissingKeyCard() {
             <span className="font-semibold">「Web端 (JS API)」</span>。
           </li>
           <li>
-            <span className="font-semibold">2.</span> 把{' '}
-            <code className="rounded bg-slate-100 px-1">frontend/.env.example</code> 复制为{' '}
-            <code className="rounded bg-slate-100 px-1">frontend/.env.local</code>，填入：
+            <span className="font-semibold">2.</span> 打开{' '}
+            <code className="rounded bg-slate-100 px-1">frontend/.env.local</code>
+            （没有就把 <code className="rounded bg-slate-100 px-1">.env.example</code> 复制一份），填入：
             <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-[12px] leading-5 text-slate-100">
 {`VITE_AMAP_JS_KEY=你的JS API Key
 VITE_AMAP_SECURITY_CODE=你的安全密钥（若控制台开启了安全密钥则必填）`}
             </pre>
           </li>
           <li>
-            <span className="font-semibold">3.</span> 重启开发服务器（Vite 只在启动时读取
-            .env，改完必须重启）：<code className="rounded bg-slate-100 px-1">pnpm dev</code>
+            <span className="font-semibold">3.</span> 重启服务（Vite 只在启动时读取 .env，改完必须重启）：
+            <code className="rounded bg-slate-100 px-1">双击 启动.bat</code>
+            或
+            <code className="rounded bg-slate-100 px-1">node node_modules\vite\bin\vite.js</code>
           </li>
         </ol>
         <p className="mt-4 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-500">

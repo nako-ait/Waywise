@@ -21,7 +21,7 @@ MAX_DESTINATIONS = 20
 
 @router.get("/modes")
 def list_modes() -> list[dict]:
-    """五种交通方式的参数（颜色/图标/速度/费率），前端据此渲染按钮与路线配色。"""
+    """五种交通方式的参数（颜色/速度/费率），前端据此渲染按钮与路线配色。"""
     return all_modes()
 
 

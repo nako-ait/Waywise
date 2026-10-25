@@ -1,6 +1,8 @@
 import BackendStatus from '@/components/BackendStatus'
 import MapView from '@/components/MapView'
+import ShareActions from '@/components/ShareActions'
 import Sidebar from '@/components/Sidebar'
+import ToastHost from '@/components/ToastHost'
 import BottomBar from '@/components/BottomBar'
 import DayTabs from '@/components/DayTabs'
 import Timeline from '@/components/Timeline'
@@ -36,7 +38,10 @@ export default function App() {
         <p className="hidden text-xs text-slate-400 sm:block">
           以酒店为固定起点 · 地图选点 · AI 编译多日路书
         </p>
-        <BackendStatus />
+        <div className="flex items-center gap-2">
+          <ShareActions />
+          <BackendStatus />
+        </div>
       </header>
 
       <main className="flex min-h-0 flex-1">
@@ -49,6 +54,7 @@ export default function App() {
       <Timeline />
       <DayTabs />
       <BottomBar />
+      <ToastHost />
     </div>
   )
 }

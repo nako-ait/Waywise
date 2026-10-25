@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
 from .config import settings
-from .routers import ai, health, isochrone, plan, poi
+from .routers import ai, health, isochrone, plan, poi, share
 
 app = FastAPI(
     title="路书编译师 TripCompiler API",
@@ -44,6 +44,8 @@ app.include_router(plan.router, prefix="/api")
 app.include_router(isochrone.router, prefix="/api")
 # 模块 4：AI 能力（自然语言解析 / 一句话重规划 / 路线解释）
 app.include_router(ai.router, prefix="/api")
+# 模块 6：行程口令分享（内存口令，6 位大写字母 + 数字）
+app.include_router(share.router, prefix="/api")
 
 
 @app.get("/")
@@ -57,5 +59,6 @@ def root() -> dict:
             "2": "单日路线规划：距离矩阵 + OR-Tools TSP + 时间轴（已完成）",
             "3": "多日聚类分天 + 权重滑杆 + 等时圈（已完成）",
             "4": "AI 能力：自然语言解析 / 一句话重规划 / 路线解释（已完成，无 Key 自动降级）",
+            "6": "行程口令分享：POST /api/share 生成 6 位口令，GET /api/share/{code} 取回",
         },
     }

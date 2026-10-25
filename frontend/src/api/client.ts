@@ -11,6 +11,8 @@ import type {
   IsochroneResponse,
   PlanRequest,
   PlanResponse,
+  ShareCodeResponse,
+  SharedTripData,
   TravelMode,
 } from '@/types'
 
@@ -123,6 +125,21 @@ export function aiExplain(plan: PlanResponse, question?: string): Promise<AiExpl
     { method: 'POST', body: JSON.stringify({ plan, question }) },
     60000,
   )
+}
+
+/* ---------------- 模块 6：行程口令分享 ---------------- */
+
+/** 生成分享口令（把当前行程快照发给后端） */
+export function shareTrip(tripData: SharedTripData): Promise<ShareCodeResponse> {
+  return request<ShareCodeResponse>('/api/share', {
+    method: 'POST',
+    body: JSON.stringify({ trip_data: tripData }),
+  })
+}
+
+/** 用口令取回行程；口令不存在时后端返回 404 */
+export function fetchSharedTrip(code: string): Promise<SharedTripData> {
+  return request<SharedTripData>(`/api/share/${encodeURIComponent(code.trim().toUpperCase())}`, {}, 15000)
 }
 
 export { API_BASE }

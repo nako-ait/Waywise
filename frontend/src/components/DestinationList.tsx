@@ -105,7 +105,7 @@ export default function DestinationList() {
           <div className="px-4 py-8 text-center text-xs leading-6 text-slate-400">
             还没有候选点。
             <br />
-            点击地图空白处添加，或用上方「快速添加」。
+            点击地图空白处添加，或用上方「搜索添加目的地」。
           </div>
         ) : (
           <ul>

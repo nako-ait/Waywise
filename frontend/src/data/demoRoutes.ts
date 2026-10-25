@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 三条主题演示线路（模块 5）。
  *
  * 为什么内置在前端而不是问后端要：演示现场**零网络依赖**是最重要的。
@@ -15,7 +15,6 @@ import type { TravelMode } from '@/types'
 export interface DemoRoute {
   id: string
   name: string
-  icon: string
   desc: string
   hotel: { name: string; lng: number; lat: number; address?: string }
   mode: TravelMode
@@ -28,7 +27,6 @@ export const DEMO_ROUTES: DemoRoute[] = [
   {
     id: 'classic',
     name: '经典一日',
-    icon: '🏛',
     desc: '外滩 · 豫园 · 南京路 · 上博 · 新天地 · 田子坊｜公交 1 天',
     hotel: { name: '人民广场 · 演示起点', lng: 121.4737, lat: 31.2304, address: '黄浦区人民大道' },
     mode: 'transit',
@@ -38,7 +36,6 @@ export const DEMO_ROUTES: DemoRoute[] = [
   {
     id: 'night',
     name: '浦江夜景',
-    icon: '🌃',
     desc: '陆家嘴 · 东方明珠 · 上海之巅 · 北外滩 · 外滩｜打车 1 天',
     hotel: { name: '外滩 · 演示起点', lng: 121.4903, lat: 31.2397, address: '黄浦区中山东一路' },
     mode: 'taxi',
@@ -55,7 +52,6 @@ export const DEMO_ROUTES: DemoRoute[] = [
   {
     id: 'watertown',
     name: '水乡两日',
-    icon: '🛶',
     desc: '朱家角 · 七宝老街 · 动物园 + 市区｜公交 2 天',
     hotel: { name: '徐家汇 · 演示起点', lng: 121.4370, lat: 31.1930, address: '徐汇区徐家汇' },
     mode: 'transit',

@@ -3,11 +3,11 @@ import { usePlanStale } from '@/lib/routeOrder'
 import { useTripStore } from '@/store/useTripStore'
 import type { Weights } from '@/types'
 
-const WEIGHT_META: Array<{ key: keyof Weights; label: string; icon: string; hint: string }> = [
-  { key: 'time', label: '时间', icon: '⏱', hint: '尽量少花时间在路上' },
-  { key: 'convenience', label: '换乘', icon: '🔁', hint: '少换乘、少等车（公交/地铁更敏感）' },
-  { key: 'cost', label: '花费', icon: '💰', hint: '省钱优先（1 元 ≈ 3 分钟当量）' },
-  { key: 'walking', label: '步行', icon: '🚶', hint: '少走路（1 公里 ≈ 13.3 分钟当量）' },
+const WEIGHT_META: Array<{ key: keyof Weights; label: string; hint: string }> = [
+  { key: 'time', label: '时间', hint: '尽量少花时间在路上' },
+  { key: 'convenience', label: '换乘', hint: '少换乘、少等车（公交/地铁更敏感）' },
+  { key: 'cost', label: '花费', hint: '省钱优先（1 元 ≈ 3 分钟当量）' },
+  { key: 'walking', label: '步行', hint: '少走路（1 公里 ≈ 13.3 分钟当量）' },
 ]
 
 /**
@@ -37,7 +37,7 @@ export default function TripParamsPanel() {
             {days} 天 · 权重可调
           </span>
         </h2>
-        <span className="text-[11px] text-slate-400">{open ? '收起 ▲' : '展开 ▼'}</span>
+        <span className="text-[11px] text-slate-400">{open ? '收起' : '展开'}</span>
       </button>
 
       {open && (
@@ -108,11 +108,9 @@ export default function TripParamsPanel() {
               <span className="text-xs font-medium text-slate-600">偏好权重</span>
               <span className="text-[10px] text-slate-400">进入目标函数，重新编译后生效</span>
             </div>
-            {WEIGHT_META.map(({ key, label, icon, hint }) => (
+            {WEIGHT_META.map(({ key, label, hint }) => (
               <div key={key} className="flex items-center gap-2" title={hint}>
-                <span className="w-14 shrink-0 text-[11px] text-slate-500">
-                  {icon} {label}
-                </span>
+                <span className="w-14 shrink-0 text-[11px] text-slate-500">{label}</span>
                 <input
                   type="range"
                   min={0}

@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useRef, useState } from 'react'
 import { hasAmapKey, loadAMap, reverseGeocode } from '@/lib/amap'
 import { blockPropagation, escapeHtml } from '@/lib/dom'
+import { layoutLabels, type LabelCandidate, type LabelObstacle } from '@/lib/labelLayout'
 import { clearMapInstance, fitToPoints, setMapInstance } from '@/lib/mapInstance'
+import { fetchLegGeometries, type LegEndpoints, type LngLatPath } from '@/lib/routeGeometry'
+import { RouteFlow } from '@/lib/routeFlow'
 import { useOrderMap, useDayScope } from '@/lib/routeOrder'
-import { bandColor, modeStyle } from '@/lib/routeStyle'
-import { poiIcon } from '@/lib/poiIcon'
+import { bandColor, modeStyle, ROUTE_COLOR } from '@/lib/routeStyle'
 import { useTripStore } from '@/store/useTripStore'
 import MapLegend from './MapLegend'
 import MissingKeyCard from './MissingKeyCard'
@@ -15,23 +17,25 @@ import MissingKeyCard from './MissingKeyCard'
  * 这里用原生 DOM + 独立 CSS 类（见 src/index.css 的 .tc-pin）。
  * ------------------------------------------------------------------ */
 
-/** 名称标签（浮在标记上方）：图标 + 地名 */
-function labelHtml(icon: string, name: string): string {
+/**
+ * 名称标签（浮在标记上方）。
+ * data-priority 供碰撞避让排序用：数字越小越优先（酒店 0 → 已选点 1..n → 候选点 9000）。
+ */
+function labelHtml(name: string, priority: number, key: string): string {
   return (
-    `<div class="tc-pin__label">` +
-    `<span class="tc-pin__label-icon">${escapeHtml(icon)}</span>` +
+    `<div class="tc-pin__label" data-priority="${priority}" data-key="${escapeHtml(key)}">` +
     `<span class="tc-pin__label-text">${escapeHtml(name)}</span>` +
     `</div>`
   )
 }
 
-/** 酒店：绿色圆角方形徽标 + 🏨 + 地名（固定起点 / 终点） */
+/** 酒店：蓝色方块徽标 + 地名（固定起点 / 终点） */
 function createHotelPinEl(name: string): HTMLElement {
   const el = document.createElement('div')
   el.className = 'tc-pin tc-pin--hotel'
   el.innerHTML =
-    labelHtml('🏨', name) +
-    `<div class="tc-pin__head">🏨</div>` +
+    labelHtml(name, 0, 'hotel') +
+    `<div class="tc-pin__head"></div>` +
     `<div class="tc-pin__tail"></div>`
   // ⚠️ 关键：标记上的事件必须阻止冒泡，否则地图 click 会紧接着触发，
   //    于是「点标记」变成「点标记 + 在该处新增一个候选点」。
@@ -39,17 +43,17 @@ function createHotelPinEl(name: string): HTMLElement {
   return el
 }
 
-/** 选中目的地：橙色水滴形地图针（针头里是序号）+ 带分类图标的地名标签 */
+/** 选中目的地：墨黑水滴形地图针（针头里是序号）+ 地名标签 */
 function createPickedPinEl(
   order: number,
   name: string,
-  icon: string,
+  key: string,
   showLabel = true,
 ): HTMLElement {
   const el = document.createElement('div')
   el.className = 'tc-pin tc-pin--poi'
   el.innerHTML =
-    (showLabel ? labelHtml(icon, name) : '') +
+    (showLabel ? labelHtml(name, order, key) : '') +
     `<div class="tc-pin__head">${order}</div>` +
     `<div class="tc-pin__tail"></div>`
   blockPropagation(el)
@@ -57,39 +61,35 @@ function createPickedPinEl(
 }
 
 /**
- * 候选目的地（未选中）：灰色圆形 + 灰度分类图标 + 地名标签。
+ * 候选目的地（未选中）：浅灰小圆点 + 地名标签。
  *
- * showLabel=false 时退化为一个纯图标小圆（点多了可以关掉标签，避免地图太挤）。
- * 带标签时外面套一层 .tc-cand-wrap（30×30，标签绝对定位浮在上方），
+ * showLabel=false 时退化为一个纯圆点（点多了可以关掉标签，避免地图太挤）。
+ * 带标签时外面套一层 .tc-cand-wrap（14×14，标签绝对定位浮在上方），
  * 这样 anchor:'center' 依然对准圆心。
  *
- * 这里用 HTML Marker 而不是 CircleMarker，是为了能带图标与标签；
+ * 这里用 HTML Marker 而不是 CircleMarker，是为了能带标签；
  * 代价是点位特别多（>200）时性能不如 canvas 的 CircleMarker / MassMarks。
  */
-function createCandidatePinEl(icon: string, name: string, showLabel = true): HTMLElement {
-  const circle = `<div class="tc-cand"><span class="tc-cand__icon">${escapeHtml(icon)}</span></div>`
+function createCandidatePinEl(name: string, key: string, showLabel = true): HTMLElement {
   if (!showLabel) {
     const el = document.createElement('div')
     el.className = 'tc-cand'
     el.title = name
-    el.innerHTML = `<span class="tc-cand__icon">${escapeHtml(icon)}</span>`
     blockPropagation(el)
     return el
   }
   const wrap = document.createElement('div')
   wrap.className = 'tc-cand-wrap'
-  wrap.innerHTML = labelHtml(icon, name) + circle
+  wrap.innerHTML = labelHtml(name, 9000, key) + `<div class="tc-cand"></div>`
   blockPropagation(wrap)
   return wrap
 }
 
-/** 路线上的交通方式徽标（图标 + 分钟数），挂在每一段折线的中间点 */
-function createLegBadgeEl(icon: string, text: string): HTMLElement {
+/** 路线上的交通方式徽标（时长 / 回酒店），挂在每一段折线的中间点 */
+function createLegBadgeEl(text: string): HTMLElement {
   const el = document.createElement('div')
   el.className = 'tc-leg'
-  el.innerHTML =
-    `<span class="tc-leg__icon">${escapeHtml(icon)}</span>` +
-    `<span class="tc-leg__text">${escapeHtml(text)}</span>`
+  el.textContent = text
   blockPropagation(el)
   return el
 }
@@ -105,11 +105,11 @@ function infoWindowHtml(title: string, lines: string[]): string {  return (
  * 地图组件
  *
  * 三条硬性约束的实现方式：
- *  1) 酒店蓝色标记固定不可取消 —— 酒店数据独立于 destinations，UI 无删除入口。
- *  2) 目的地也有图标，且与酒店明显不同：
- *       酒店     = 蓝色圆角方形徽标 + 🏨（带呼吸动画）
- *       已选目的地 = 橙色水滴形地图针 + 序号 + 分类图标标签
- *       候选目的地 = 灰色小圆 + 灰度分类图标（常显，点一下即变橙色针）
+ *  1) 酒店标记固定不可取消 —— 酒店数据独立于 destinations，UI 无删除入口。
+ *  2) 目的地与酒店在视觉上区分得开：
+ *       酒店       = 蓝色圆角方块（全图唯一的彩色标记）
+ *       已选目的地 = 墨黑水滴形地图针 + 序号
+ *       候选目的地 = 浅灰小圆点（点一下即变墨色针）
  *     三个图层都用「增量 diff 同步」而不是每次清空重建，避免闪烁与标记丢失。
  *  3) 点标记不能新增点 —— 三重保险：DOM stopPropagation + Marker bubble:false
  *     + 400ms 时间戳兜底。
@@ -132,11 +132,114 @@ export default function MapView() {
   /** 候选点标记的渲染缓存（是否显示标签|图标|名称） */
   const candidateMetaRef = useRef<Map<string, string>>(new Map())
   const hotelMarkerRef = useRef<any>(null)
+  /** 路线流动箭头（真实路网时才创建） */
+  const flowRef = useRef<RouteFlow | null>(null)
   /** 兜底防冒泡：最近一次「点到标记」的时间戳 */
   const lastOverlayClickAtRef = useRef(0)
 
   const [booting, setBooting] = useState(true)
   const [initError, setInitError] = useState<string | null>(null)
+  /**
+   * 前端自己取回来的真实路网折线（后端没配 Web 服务 Key 时用）。
+   * null = 还没取到 / 取不到，继续用后端给的折线（离线估算时就是直线）。
+   */
+  const [clientPaths, setClientPaths] = useState<LngLatPath[] | null>(null)
+
+  /** 标签避让的下一帧句柄（连拖地图时只算最后一帧） */
+  const labelFrameRef = useRef<number | null>(null)
+
+  /**
+   * 标签碰撞避让（屏幕空间贪心占位 + 上下翻转）：
+   *   全部显示 → 量每个标签的矩形 → 酒店/已选点优先 → 上方放不下就翻到下方 → 都放不下才隐藏。
+   * 只改 DOM class、不碰 React 状态，所以不会触发重渲染；
+   * 被隐藏的只是文字标签，标记本身还在，点一下依旧能看详情。
+   */
+  const applyLabelCollision = useCallback(() => {
+    const root = containerRef.current
+    if (!root) return
+    const labels = Array.from(root.querySelectorAll<HTMLElement>('.tc-pin__label'))
+    if (!labels.length) return
+
+    // 必须先把上一轮的隐藏/翻转还原，否则 display:none 的元素量不出尺寸
+    for (const el of labels) {
+      el.classList.remove('tc-pin__label--hidden', 'tc-pin__label--below')
+    }
+
+    const bounds = root.getBoundingClientRect()
+    const items: Array<{ el: HTMLElement; candidate: LabelCandidate }> = []
+    for (const el of labels) {
+      const r = el.getBoundingClientRect()
+      if (!r.width || !r.height) continue
+      // 完全在视野外的标签不参与避让（反正也看不见）
+      if (
+        r.right < bounds.left ||
+        r.left > bounds.right ||
+        r.bottom < bounds.top ||
+        r.top > bounds.bottom
+      ) {
+        continue
+      }
+      // 备选位置：标记正下方 6px（针尖或灰点之下），左右居中
+      const markerRect = el.parentElement?.getBoundingClientRect()
+      const centerX = markerRect ? markerRect.left + markerRect.width / 2 : (r.left + r.right) / 2
+      const fallbackTop = markerRect ? markerRect.bottom + 6 : r.bottom + 6
+      items.push({
+        el,
+        candidate: {
+          key: el.dataset.key ?? el.textContent ?? '',
+          priority: Number(el.dataset.priority ?? 9999),
+          rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom },
+          fallbackRect: {
+            left: centerX - r.width / 2,
+            top: fallbackTop,
+            right: centerX + r.width / 2,
+            bottom: fallbackTop + r.height,
+          },
+        },
+      })
+    }
+    if (!items.length) return
+
+    // 障碍物：别人的针头/酒店方块/灰点，以及路线上的时长徽标 —— 标签不能压住它们
+    const obstacles: LabelObstacle[] = []
+    for (const markerEl of Array.from(
+      root.querySelectorAll<HTMLElement>('.tc-pin, .tc-cand, .tc-cand-wrap'),
+    )) {
+      const head = markerEl.querySelector<HTMLElement>('.tc-pin__head') ?? markerEl
+      const r = head.getBoundingClientRect()
+      if (!r.width || !r.height) continue
+      obstacles.push({
+        key: markerEl.querySelector<HTMLElement>('.tc-pin__label')?.dataset.key,
+        rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom },
+      })
+    }
+    for (const badge of Array.from(root.querySelectorAll<HTMLElement>('.tc-leg'))) {
+      const r = badge.getBoundingClientRect()
+      if (!r.width || !r.height) continue
+      obstacles.push({ rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom } })
+    }
+
+    const placement = layoutLabels(
+      items.map((i) => i.candidate),
+      { padding: 3, obstacles },
+    )
+    for (const { el, candidate } of items) {
+      const where = placement.get(candidate.key) ?? 'hidden'
+      if (where === 'hidden') el.classList.add('tc-pin__label--hidden')
+      else if (where === 'fallback') el.classList.add('tc-pin__label--below')
+    }
+  }, [])
+
+  /** 双 rAF：等这一帧里高德把标记的 transform 定位应用完，再量尺寸 */
+  const scheduleLabelLayout = useCallback(() => {
+    if (labelFrameRef.current != null) cancelAnimationFrame(labelFrameRef.current)
+    labelFrameRef.current = requestAnimationFrame(() => {
+      labelFrameRef.current = requestAnimationFrame(() => {
+        labelFrameRef.current = null
+        applyLabelCollision()
+      })
+    })
+  }, [applyLabelCollision])
 
   // 只订阅稳定引用，派生数组在下面用 useMemo/局部变量算
   const destinations = useTripStore((s) => s.destinations)
@@ -174,6 +277,11 @@ export default function MapView() {
           center: [view.lng, view.lat],
           viewMode: '2D',
           resizeEnable: true,
+          // 浅色底图：把高德默认的彩色路网压成灰白，数据（标记/路线）才是主角
+          mapStyle: 'amap://styles/whitesmoke',
+          // 隐藏底图自带的彩色 POI 图标（它们和我们的目的地标记抢注意力），
+          // 只保留背景、道路与建筑 —— 地名标签仍在，便于定位
+          features: ['bg', 'road', 'building'],
           // 统一 GCJ-02，高德不做任何坐标转换
         })
         mapRef.current = map
@@ -223,15 +331,23 @@ export default function MapView() {
           })
         }
 
+        /* ---- 视野变化：持久化 + 重排标签（避让随缩放/平移重新计算） ---- */
+        const handleViewChange = () => {
+          persistView()
+          scheduleLabelLayout()
+        }
+
         map.on('click', handleMapClick)
-        map.on('moveend', persistView)
-        map.on('zoomend', persistView)
+        map.on('moveend', handleViewChange)
+        map.on('zoomend', handleViewChange)
+        window.addEventListener('resize', scheduleLabelLayout)
 
         setBooting(false)
         useTripStore.getState().setMapReady(true)
+        scheduleLabelLayout()
 
-        // 清理函数需要拿到这两个 handler，挂到 map 实例上带出去
-        ;(map as any).__tcHandlers = { handleMapClick, persistView }
+        // 清理函数需要拿到这几个 handler，挂到 map 实例上带出去
+        ;(map as any).__tcHandlers = { handleMapClick, handleViewChange }
       })
       .catch((err: unknown) => {
         if (disposed) return
@@ -241,13 +357,15 @@ export default function MapView() {
 
     return () => {
       disposed = true
+      window.removeEventListener('resize', scheduleLabelLayout)
+      if (labelFrameRef.current != null) cancelAnimationFrame(labelFrameRef.current)
       const map = mapRef.current
       if (map) {
         const handlers = (map as any).__tcHandlers
         if (handlers) {
           map.off('click', handlers.handleMapClick)
-          map.off('moveend', handlers.persistView)
-          map.off('zoomend', handlers.persistView)
+          map.off('moveend', handlers.handleViewChange)
+          map.off('zoomend', handlers.handleViewChange)
         }
         map.clearMap()
         map.destroy()
@@ -256,6 +374,8 @@ export default function MapView() {
       AMapRef.current = null
       infoWindowRef.current = null
       hotelMarkerRef.current = null
+      flowRef.current?.destroy()
+      flowRef.current = null
       candidateMarkersRef.current.clear()
       pickedMarkersRef.current.clear()
       pickedMetaRef.current.clear()
@@ -290,7 +410,7 @@ export default function MapView() {
       marker.on('click', () => {
         lastOverlayClickAtRef.current = Date.now()
         infoWindowRef.current?.setContent(
-          infoWindowHtml('🏨 ' + hotel.name, [
+          infoWindowHtml(hotel.name, [
             hotel.address ?? '',
             '固定起点：出发与返回都在这里',
             '不可取消 · 可在左侧搜索替换',
@@ -304,10 +424,11 @@ export default function MapView() {
       hotelMarkerRef.current.setPosition(position)
       hotelMarkerRef.current.setContent(content())
     }
-  }, [hotel, mapReady])
+    scheduleLabelLayout()
+  }, [hotel, mapReady, scheduleLabelLayout])
 
   /* ============================================================
-   * 3) 候选点图层：灰色圆形图标（带分类 emoji，灰度处理）
+   * 3) 候选点图层：浅灰小圆点（可选地名标签）
    *    增量 diff：只增删差异项，已存在的仅更新坐标
    * ============================================================ */
   useEffect(() => {
@@ -331,14 +452,13 @@ export default function MapView() {
 
     // 3.2 新增 / 更新
     for (const d of candidates) {
-      const icon = poiIcon(d.tags)
-      const meta = `${showLabels}|${icon}|${d.name}`
+      const meta = `${showLabels}|${d.name}`
       const exist = candidateMarkersRef.current.get(d.id)
       if (exist) {
         exist.setPosition([d.lng, d.lat])
-        // 开关标签、改名、换图标时才重设内容，避免每次 setContent 闪一下
+        // 开关标签、改名时才重设内容，避免每次 setContent 闪一下
         if (candidateMetaRef.current.get(d.id) !== meta) {
-          exist.setContent(createCandidatePinEl(icon, d.name, showLabels))
+          exist.setContent(createCandidatePinEl(d.name, d.id, showLabels))
           candidateMetaRef.current.set(d.id, meta)
         }
         continue
@@ -346,7 +466,7 @@ export default function MapView() {
       const marker = new AMap.Marker({
         position: [d.lng, d.lat],
         anchor: 'center', // 圆心即坐标点
-        content: createCandidatePinEl(icon, d.name, showLabels),
+        content: createCandidatePinEl(d.name, d.id, showLabels),
         zIndex: 60,
         bubble: false, // 兜底 2：不冒泡到地图
         extData: { kind: 'candidate', id: d.id },
@@ -361,10 +481,11 @@ export default function MapView() {
       candidateMarkersRef.current.set(d.id, marker)
       candidateMetaRef.current.set(d.id, meta)
     }
-  }, [destinations, dayIds, showLabels, mapReady])
+    scheduleLabelLayout()
+  }, [destinations, dayIds, showLabels, mapReady, scheduleLabelLayout])
 
   /* ============================================================
-   * 4) 选中点图层：橙色带序号（单独渲染，序号 = 选中顺序）
+   * 4) 选中点图层：墨色带序号（单独渲染，序号 = 路线顺序）
    * ============================================================ */
   useEffect(() => {
     const AMap = AMapRef.current
@@ -387,15 +508,14 @@ export default function MapView() {
     picked.forEach((d, index) => {
       // 序号来源：有路书就是路线顺序，没有就是选中顺序（与侧边栏/时间轴保持一致）
       const order = orderMap.get(d.id) ?? index + 1
-      const icon = poiIcon(d.tags)
-      const meta = `${order}|${d.name}|${icon}|${showLabels}`
+      const meta = `${order}|${d.name}|${showLabels}`
       const exist = pickedMarkersRef.current.get(d.id)
 
       if (exist) {
         exist.setPosition([d.lng, d.lat])
-        // 序号 / 名称 / 图标 / 标签开关变了才重设内容（否则每次 setContent 会闪一下）
+        // 序号 / 名称 / 标签开关变了才重设内容（否则每次 setContent 会闪一下）
         if (pickedMetaRef.current.get(d.id) !== meta) {
-          exist.setContent(createPickedPinEl(order, d.name, icon, showLabels))
+          exist.setContent(createPickedPinEl(order, d.name, d.id, showLabels))
           pickedMetaRef.current.set(d.id, meta)
         }
         return
@@ -404,7 +524,7 @@ export default function MapView() {
       const marker = new AMap.Marker({
         position: [d.lng, d.lat],
         anchor: 'bottom-center',
-        content: createPickedPinEl(order, d.name, icon, showLabels),
+        content: createPickedPinEl(order, d.name, d.id, showLabels),
         zIndex: 200 + order,
         bubble: false,
         extData: { kind: 'picked', id: d.id },
@@ -418,10 +538,44 @@ export default function MapView() {
       pickedMarkersRef.current.set(d.id, marker)
       pickedMetaRef.current.set(d.id, meta)
     })
-  }, [destinations, dayIds, orderMap, showLabels, mapReady])
+    scheduleLabelLayout()
+  }, [destinations, dayIds, orderMap, showLabels, mapReady, scheduleLabelLayout])
 
   /* ============================================================
-   * 5) 路线图层：折线（白描边 + 方式配色 + 方向箭头）+ 交通方式徽标
+   * 5) 路线几何：后端没配「Web 服务」Key 时（dataSource=offline），
+   *    它只能给「直线 × 绕行系数」；这里用 JS API 的路径规划补回真实路网。
+   *    取不到就保持后端折线，绝不半真半假。
+   * ============================================================ */
+  useEffect(() => {
+    const AMap = AMapRef.current
+    const map = mapRef.current
+    setClientPaths(null)
+    if (!AMap || !map || !plan || !activeDayPlan || !activeDayPlan.stops.length) return
+    // 后端已经是真实路网（配了 Web 服务 Key），不用重复请求
+    if (plan.solver?.dataSource === 'amap') return
+
+    const stops = activeDayPlan.stops
+    const points = [
+      { lng: hotel.lng, lat: hotel.lat },
+      ...stops.map((stop) => ({ lng: stop.lng, lat: stop.lat })),
+      { lng: hotel.lng, lat: hotel.lat },
+    ]
+    const legs: LegEndpoints[] = []
+    for (let i = 1; i < points.length; i += 1) legs.push({ from: points[i - 1], to: points[i] })
+
+    let cancelled = false
+    const routeMode = (plan.solver?.mode as typeof mode) ?? mode
+    void fetchLegGeometries(AMap, legs, routeMode).then((geometries) => {
+      if (cancelled || !geometries) return
+      setClientPaths(geometries.map((item) => item.path))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [plan, activeDayPlan, hotel, mode, mapReady])
+
+  /* ============================================================
+   * 6) 路线图层：折线（白描边 + 浅蓝主色）+ 时长徽标 + 流动箭头
    *    每次重算整体重建 —— 段数只有 N+1，重建成本极低且不会残留旧线
    * ============================================================ */
   useEffect(() => {
@@ -431,11 +585,12 @@ export default function MapView() {
 
     for (const overlay of routeOverlaysRef.current) overlay.setMap(null)
     routeOverlaysRef.current = []
+    flowRef.current?.clear()
 
     const day = activeDayPlan
     if (!plan || !day || !day.stops.length) return
 
-    const legs = day.polylines ?? plan.polylines ?? []
+    const legs = clientPaths ?? day.polylines ?? plan.polylines ?? []
     const fallbackMode = plan.solver?.mode ?? mode
 
     legs.forEach((path, index) => {
@@ -444,12 +599,12 @@ export default function MapView() {
       const style = modeStyle(leg?.mode ?? fallbackMode)
 
       if (path.length > 1) {
-        // 白色描边打底，让彩色主线在任何底图上都清晰
+        // 白色描边打底，让浅蓝主线在灰白底图上依然清晰
         const casing = new AMap.Polyline({
           path,
           strokeColor: '#ffffff',
-          strokeWeight: 9,
-          strokeOpacity: 0.85,
+          strokeWeight: 14,
+          strokeOpacity: 0.92,
           lineJoin: 'round',
           lineCap: 'round',
           zIndex: 120,
@@ -457,12 +612,13 @@ export default function MapView() {
         })
         const line = new AMap.Polyline({
           path,
-          strokeColor: style.color,
-          strokeWeight: 5,
-          strokeOpacity: 0.95,
+          strokeColor: ROUTE_COLOR,
+          strokeWeight: 10,
+          strokeOpacity: 0.92,
           lineJoin: 'round',
           lineCap: 'round',
-          showDir: true, // 方向箭头：一眼看出行进方向
+          // 方向交给序号与时间轴表达，折线保持干净的实线
+          showDir: false,
           zIndex: 121,
           bubble: false,
         })
@@ -493,7 +649,7 @@ export default function MapView() {
         const marker = new AMap.Marker({
           position: anchor,
           anchor: 'center',
-          content: createLegBadgeEl(style.icon, text),
+          content: createLegBadgeEl(text),
           zIndex: 260 + index,
           bubble: false,
         })
@@ -502,12 +658,18 @@ export default function MapView() {
       }
     })
 
+    // 真实路网折线才做流动箭头（两点直线 = 离线估算，不伪装成真实路径）
+    if (legs.some((path) => path.length > 2)) {
+      if (!flowRef.current) flowRef.current = new RouteFlow(AMap, map)
+      flowRef.current.setPaths(legs)
+    }
+
     // 把整条路线框进视野
     fitToPoints([hotel, ...day.stops])
-  }, [plan, activeDayPlan, mode, hotel, mapReady])
+  }, [plan, activeDayPlan, mode, hotel, mapReady, clientPaths])
 
   /* ============================================================
-   * 6) 等时圈图层（模块 3）：酒店 15/30/45 分钟可达范围
+   * 7) 等时圈图层（模块 3）：酒店 15/30/45 分钟可达范围
    *    大圈先画、小圈压在上面，保证颜色叠加关系正确
    * ============================================================ */
   useEffect(() => {
@@ -527,11 +689,11 @@ export default function MapView() {
       const polygon = new AMap.Polygon({
         path: band.polygon,
         strokeColor: color,
-        strokeWeight: 1.5,
-        strokeOpacity: 0.85,
-        strokeStyle: 'dashed',
+        strokeWeight: 1,
+        strokeOpacity: 0.45,
+        strokeStyle: 'solid',
         fillColor: color,
-        fillOpacity: 0.1,
+        fillOpacity: 0.07,
         zIndex: 30,
         bubble: false,
       })
@@ -572,3 +734,4 @@ export default function MapView() {
     </div>
   )
 }
+

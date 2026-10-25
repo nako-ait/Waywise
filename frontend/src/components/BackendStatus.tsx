@@ -44,7 +44,8 @@ export default function BackendStatus() {
           className={`${base} bg-red-50 text-red-600`}
           title={'后端未启动。请在另一个终端执行：\ncd backend\n.venv\\Scripts\\python.exe run.py'}
         >
-          ● 后端未启动
+          <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+          后端未启动
         </span>
       )}
 
@@ -58,7 +59,8 @@ export default function BackendStatus() {
             `POI：${info.poiCount} 个 · 缓存条目：${info.cacheEntries}`
           }
         >
-          ● 后端就绪 · {info.solver}
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          后端就绪 · {info.solver}
           <span className="text-slate-400">
             {info.distanceSource === 'amap' ? ' · 高德实时' : ' · 离线估算'}
           </span>
@@ -71,7 +73,7 @@ export default function BackendStatus() {
         disabled={checking}
         title="重新检测后端"
       >
-        {checking ? '…' : '⟳'}
+        {checking ? '…' : '刷新'}
       </button>
     </div>
   )

@@ -11,8 +11,8 @@ const EXAMPLES = [
 ]
 
 const SOURCE_LABEL: Record<string, string> = {
-  llm: '🧠 大模型',
-  rules: '⚙️ 规则解析',
+  llm: '大模型',
+  rules: '规则解析',
 }
 
 /**
@@ -21,7 +21,7 @@ const SOURCE_LABEL: Record<string, string> = {
  *   2) 一句话重规划：改偏好/时间/天数/交通方式，甚至"不想去 X 了" → 直接重算
  *   3) 路线解释：把求解器给出的事实讲成人话
  *
- * 无 LLM Key 时后端自动降级为规则解析，面板上的徽标会显示「⚙️ 规则解析」，
+ * 无 LLM Key 时后端自动降级为规则解析，面板上的徽标会显示「规则解析」，
  * 功能照常可用 —— 这是现场演示的兜底。
  */
 export default function AiPanel() {
@@ -125,7 +125,7 @@ export default function AiPanel() {
       setPlan(result.plan)
       setMessage(
         (result.applied.length ? `已重算：${result.applied.join('；')}` : '没有可执行的调整') +
-          `　→　${result.plan.days.length} 天 / ${
+          `，共 ${result.plan.days.length} 天 / ${
             result.plan.days.reduce((sum, day) => sum + day.stops.length, 0)
           } 站`,
       )
@@ -165,14 +165,14 @@ export default function AiPanel() {
         onClick={() => setOpen((v) => !v)}
       >
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-          ✨ AI 路书助手
+          AI 路书助手
           {source && (
             <span className="rounded bg-slate-900 px-1.5 py-0.5 text-[10px] font-normal text-white">
               {SOURCE_LABEL[source] ?? source}
             </span>
           )}
         </h2>
-        <span className="text-[11px] text-slate-400">{open ? '收起 ▲' : '展开 ▼'}</span>
+        <span className="text-[11px] text-slate-400">{open ? '收起' : '展开'}</span>
       </button>
 
       {open && (
@@ -226,13 +226,13 @@ export default function AiPanel() {
           </div>
 
           {message && (
-            <p className="rounded bg-emerald-50 px-2 py-1 text-[11px] leading-4 text-emerald-700">
+            <p className="rounded bg-slate-50 px-2 py-1 text-[11px] leading-4 text-slate-600">
               {message}
             </p>
           )}
           {warnings.map((warning) => (
             <p key={warning} className="rounded bg-amber-50 px-2 py-1 text-[11px] leading-4 text-amber-700">
-              ⚠ {warning}
+              {warning}
             </p>
           ))}
 

@@ -48,7 +48,7 @@ export default function DemoRoutesPanel() {
       )
 
     const { added, skipped } = addDestinations(inputs)
-    setLoaded(`${route.icon} ${route.name}：${added} 个点已选中${skipped ? `（跳过 ${skipped} 个重复）` : ''}`)
+    setLoaded(`${route.name}：${added} 个点已选中${skipped ? `（跳过 ${skipped} 个重复）` : ''}`)
 
     // 视野框住全部点
     window.setTimeout(() => {
@@ -80,11 +80,10 @@ export default function DemoRoutesPanel() {
             key={route.id}
             disabled={planning}
             onClick={() => load(route)}
-            className="flex w-full items-start gap-2 rounded-lg border border-slate-200 px-2.5 py-2 text-left transition-colors hover:border-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            className="flex w-full items-start gap-2 rounded-lg border border-slate-200 px-2.5 py-2 text-left transition-colors hover:border-slate-400 hover:bg-slate-50 disabled:opacity-50"
           >
-            <span className="text-base leading-5">{route.icon}</span>
             <span className="min-w-0">
-              <span className="block text-xs font-semibold text-slate-800">
+              <span className="block text-xs font-medium text-slate-800">
                 {route.name}
                 <span className="ml-1 font-normal text-slate-400">
                   {route.days} 天 · {route.poiNames.length} 点
@@ -96,7 +95,7 @@ export default function DemoRoutesPanel() {
         ))}
       </div>
 
-      {loaded && <p className="mt-1.5 text-[11px] text-emerald-600">{loaded}</p>}
+      {loaded && <p className="mt-1.5 text-[11px] text-slate-500">{loaded}</p>}
       <p className="mt-1 text-[10px] leading-4 text-slate-400">
         演示起点用的是同名地标坐标，可在上方「出发酒店」搜索真实酒店替换
       </p>

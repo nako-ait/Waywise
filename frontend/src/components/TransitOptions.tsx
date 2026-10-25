@@ -1,14 +1,5 @@
 import { useState } from 'react'
-import type { TransitOption, TransitRide } from '@/types'
-
-/** 线路类型 → 图标（高德的 type 已经归一成 地铁/公交/快速公交 等） */
-function rideIcon(ride: TransitRide): string {
-  if (ride.kind.includes('地铁')) return '🚇'
-  if (ride.kind.includes('快速公交')) return '🚝'
-  if (ride.kind.includes('轮渡')) return '⛴'
-  if (ride.kind.includes('有轨')) return '🚋'
-  return '🚌'
-}
+import type { TransitOption } from '@/types'
 
 /**
  * 公交 / 地铁方案对比（像高德那样能看具体坐哪几趟车）。
@@ -28,7 +19,7 @@ export default function TransitOptions({ options }: { options?: TransitOption[] 
     <div className="relative mt-0.5">
       <button
         className={`rounded px-1 text-[9px] leading-4 ${
-          direct ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+          direct ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-700'
         } hover:brightness-95`}
         onClick={(event) => {
           event.stopPropagation()
@@ -47,7 +38,7 @@ export default function TransitOptions({ options }: { options?: TransitOption[] 
           <div className="mb-1 flex items-center justify-between text-[10px] text-slate-400">
             <span>公交 / 地铁方案（{options.length} 条，按综合耗时排序）</span>
             <button className="px-1 hover:text-slate-600" onClick={() => setOpen(false)}>
-              ✕
+              ×
             </button>
           </div>
 
@@ -62,13 +53,13 @@ export default function TransitOptions({ options }: { options?: TransitOption[] 
                 <span className="text-slate-400">步行 {Math.round(option.walkKm * 1000)}m</span>
                 <span
                   className={`rounded px-1 text-[9px] ${
-                    option.direct ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                    option.direct ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-700'
                   }`}
                 >
                   {option.direct ? '直达' : `换乘 ${option.transfers} 次`}
                 </span>
                 {index === 0 && (
-                  <span className="rounded bg-blue-100 px-1 text-[9px] text-blue-700">最优</span>
+                  <span className="rounded bg-slate-900 px-1 text-[9px] text-white">最优</span>
                 )}
               </div>
 
@@ -78,7 +69,6 @@ export default function TransitOptions({ options }: { options?: TransitOption[] 
                   option.rides.map((ride, rideIndex) => (
                     <span key={`${ride.line}-${rideIndex}`} className="flex items-center gap-0.5">
                       {rideIndex > 0 && <span className="text-slate-300">→</span>}
-                      <span>{rideIcon(ride)}</span>
                       <span className="font-medium">{ride.line}</span>
                       <span className="text-slate-400">
                         {ride.fromStop}→{ride.toStop}

@@ -20,14 +20,6 @@ export const TRAVEL_MODE_LABEL: Record<TravelMode, string> = {
   drive: '驾车',
 }
 
-export const TRAVEL_MODE_ICON: Record<TravelMode, string> = {
-  walk: '🚶',
-  transit: '🚌',
-  subway: '🚇',
-  taxi: '🚕',
-  drive: '🚗',
-}
-
 /** 目的地（候选点 / 选中点共用同一份数据，用 selected 区分） */
 export interface Destination {
   id: string
@@ -346,3 +338,32 @@ export interface PoiPreset {
   /** 快照抓取日期 */
   fetchedAt?: string
 }
+
+/* ------------------------------------------------------------------ */
+/* 行程分享（口令）                                                     */
+/* ------------------------------------------------------------------ */
+
+/** 分享出去的目的地（不含本地 id，导入端会重新发 id） */
+export type SharedDestination = Omit<Destination, 'id'> & { id?: string }
+
+/** POST /api/share 的 trip_data：一份行程的完整"输入态" */
+export interface SharedTripData {
+  version?: number
+  createdAt?: string
+  hotel: Pick<Hotel, 'name' | 'lng' | 'lat'> & { address?: string }
+  destinations: SharedDestination[]
+  days?: number
+  mode?: TravelMode
+  weights?: Partial<Weights>
+  options?: {
+    dayStartTime?: string
+    dayEndTime?: string
+    lunchBreakMin?: number
+  }
+}
+
+export interface ShareCodeResponse {
+  code: string
+  message: string
+}
+
