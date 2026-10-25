@@ -68,6 +68,9 @@ export interface Profile {
   loggedIn: boolean
   amapKey: string
   llmKey: string
+  /** deepseek / qwen / zhipu */
+  llmProvider?: string
+  llmModel?: string
 }
 
 export const TRIP_GROUPS_DEFAULT = ['未分组', '上海 · 亲子', '上海 · 陪朋友']
@@ -115,6 +118,8 @@ export interface TripState {
   mode: TravelMode
   /** 逐段覆盖：目的地 id → 该段交通方式；"__return__" 表示回程 */
   legModes: Record<string, TravelMode>
+  /** 当前选中的那一段（时间轴 / 地图联动），null 表示没选 */
+  selectedLeg: number | null
   weights: Weights
 
   /** 地图视野，刷新后回到上次位置 */
@@ -171,6 +176,7 @@ export interface TripState {
   /** 改某一段的交通方式（destId = 目的地 id，"__return__" 表示回程） */
   setLegMode: (destId: string, mode: TravelMode) => void
   clearLegModes: () => void
+  setSelectedLeg: (index: number | null) => void
   setWeight: (key: keyof Weights, value: number) => void
   resetAll: () => void
   setView: (view: MapView) => void
@@ -395,6 +401,7 @@ export const useTripStore = create<TripState>()(
       days: 1,
       mode: 'transit',
       legModes: {},
+      selectedLeg: null,
       weights: { ...DEFAULT_WEIGHTS },
       view: { lng: 121.4737, lat: 31.2304, zoom: 12.5 },
       mapReady: false,
@@ -498,6 +505,7 @@ export const useTripStore = create<TripState>()(
       setLegMode: (destId, mode) =>
         set((state) => ({ legModes: { ...state.legModes, [destId]: mode } })),
       clearLegModes: () => set({ legModes: {} }),
+      setSelectedLeg: (selectedLeg) => set({ selectedLeg }),
       setWeight: (key, value) =>
         set((s) => ({ weights: { ...s.weights, [key]: Math.min(1, Math.max(0, value)) } })),
 
@@ -645,6 +653,8 @@ export const useTripStore = create<TripState>()(
             loggedIn: true,
             amapKey: state.profile?.amapKey ?? '',
             llmKey: state.profile?.llmKey ?? '',
+            llmProvider: state.profile?.llmProvider ?? 'deepseek',
+            llmModel: state.profile?.llmModel ?? 'deepseek-chat',
             ...patch,
           },
         })),
@@ -706,5 +716,7 @@ export const useTripStore = create<TripState>()(
  */
 export const selectSelectedDestinations = (s: TripState): Destination[] =>
   s.destinations.filter((d) => d.selected)
+
+
 
 

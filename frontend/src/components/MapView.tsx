@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useRef, useState } from 'react'
 import { hasAmapKey, loadAMap, reverseGeocode } from '@/lib/amap'
 import { blockPropagation, escapeHtml } from '@/lib/dom'
 import { layoutLabels, type LabelCandidate, type LabelObstacle } from '@/lib/labelLayout'
@@ -243,6 +243,7 @@ export default function MapView() {
 
   // 只订阅稳定引用，派生数组在下面用 useMemo/局部变量算
   const destinations = useTripStore((s) => s.destinations)
+  const selectedLeg = useTripStore((s) => s.selectedLeg)
   const hotel = useTripStore((s) => s.hotel)
   const mapReady = useTripStore((s) => s.mapReady)
   const plan = useTripStore((s) => s.plan)
@@ -605,6 +606,7 @@ export default function MapView() {
       const leg = isReturn ? null : day.stops[index].transportFromPrev
       const style = modeStyle(leg?.mode ?? fallbackMode)
 
+      const isSelected = selectedLeg === index
       if (path.length > 1) {
         // 白色描边打底，让浅蓝主线在灰白底图上依然清晰
         const casing = new AMap.Polyline({
@@ -619,8 +621,8 @@ export default function MapView() {
         })
         const line = new AMap.Polyline({
           path,
-          strokeColor: ROUTE_COLOR,
-          strokeWeight: 10,
+          strokeColor: isSelected ? '#1d4ed8' : ROUTE_COLOR,
+          strokeWeight: isSelected ? 12 : 10,
           strokeOpacity: 0.92,
           lineJoin: 'round',
           lineCap: 'round',
@@ -636,6 +638,7 @@ export default function MapView() {
         const midpoint = path[Math.floor(path.length / 2)]
         line.on('click', () => {
           lastOverlayClickAtRef.current = Date.now()
+          useTripStore.getState().setSelectedLeg(index)
           infoWindowRef.current?.setContent(
             infoWindowHtml(`第 ${index + 1} 段 · ${style.label}`, [
               isReturn ? '返回酒店' : `前往 ${day.stops[index].name}`,
@@ -673,7 +676,7 @@ export default function MapView() {
 
     // 把整条路线框进视野
     fitToPoints([hotel, ...day.stops])
-  }, [plan, activeDayPlan, mode, hotel, mapReady, clientPaths])
+  }, [plan, activeDayPlan, mode, hotel, mapReady, clientPaths, selectedLeg])
 
   /* ============================================================
    * 7) 等时圈图层（模块 3）：酒店 15/30/45 分钟可达范围
@@ -741,4 +744,6 @@ export default function MapView() {
     </div>
   )
 }
+
+
 

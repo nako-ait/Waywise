@@ -13,12 +13,13 @@
 """
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
 from .config import settings
 from .routers import ai, health, isochrone, plan, poi, share
+from .services import keyring
 
 app = FastAPI(
     title="路书编译师 TripCompiler API",
@@ -34,6 +35,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_keys(request: Request, call_next):
+    """把前端个人页填的 Key 通过请求头带进来（x-llm-key / x-amap-key ...）。
+
+    没有这些头就完全走 .env，跟旧版行为一致。
+    """
+    keyring.llm_key.set(request.headers.get("x-llm-key", "").strip())
+    keyring.llm_provider.set(request.headers.get("x-llm-provider", "").strip())
+    keyring.llm_model.set(request.headers.get("x-llm-model", "").strip())
+    keyring.llm_base_url.set(request.headers.get("x-llm-base-url", "").strip())
+    keyring.amap_key.set(request.headers.get("x-amap-key", "").strip())
+    try:
+        return await call_next(request)
+    finally:
+        keyring.reset_all()
 
 # 模块 1：健康检查 + POI 数据
 app.include_router(health.router, prefix="/api")

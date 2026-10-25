@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { fromHereNavUrl, navHint, previousPointFor, stopNavUrl } from '@/lib/amapNav'
 import { formatMinutes, formatMoney } from '@/lib/geo'
 import { isClosedToday } from '@/lib/amapParse'
@@ -23,6 +23,8 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
   const destinations = useTripStore((s) => s.destinations)
   const weights = useTripStore((s) => s.weights)
   const legModes = useTripStore((s) => s.legModes)
+  const selectedLeg = useTripStore((s) => s.selectedLeg)
+  const setSelectedLeg = useTripStore((s) => s.setSelectedLeg)
   const setLegMode = useTripStore((s) => s.setLegMode)
   const updateDestination = useTripStore((s) => s.updateDestination)
   const showToast = useTripStore((s) => s.showToast)
@@ -145,8 +147,13 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
           const closedDays = destinations.find((item) => item.id === stop.id)?.closedWeekdays
           return (
             <div key={stop.id}>
-              {/* 交通段：可以直接改这一段的方式 */}
-              <div className="flex flex-wrap items-center gap-2 py-1 pl-7 text-[10px] text-slate-400">
+              {/* 交通段：可以直接改这一段的方式；点一下 = 在地图上高亮这一段 */}
+              <div
+                className={`flex cursor-pointer flex-wrap items-center gap-2 rounded py-1 pl-7 text-[10px] transition-colors ${
+                  selectedLeg === index ? 'bg-blue-50 text-slate-600' : 'text-slate-400 hover:bg-slate-50'
+                }`}
+                onClick={() => setSelectedLeg(selectedLeg === index ? null : index)}
+              >
                 <span className="h-3 w-px bg-slate-200" />
                 {readOnly ? (
                   <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">{style.label}</span>
@@ -291,4 +298,5 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
     </div>
   )
 }
+
 

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from ..config import settings
-from . import cache
+from . import cache, keyring
 from .modes import ModeSpec, fare_for, get_mode, transfers_for, walk_km_for
 
 AMAP_BASE = "https://restapi.amap.com"
@@ -29,6 +29,11 @@ HTTP_TIMEOUT = 8.0
 MAX_ORIGINS_PER_CALL = 90
 
 LatLng = tuple[float, float]
+
+
+def _amap_key() -> str:
+    """本次请求携带的高德 Web 服务 Key 优先，其次用 .env 里的。"""
+    return keyring.amap_key.get() or settings.amap_web_key
 
 
 # --------------------------------------------------------------------------- #
@@ -47,7 +52,7 @@ def haversine_km(a: LatLng, b: LatLng) -> float:
 
 
 def has_web_key() -> bool:
-    return bool(settings.amap_web_key.strip())
+    return bool(_amap_key().strip())
 
 
 def _round_points(points: list[LatLng]) -> list[list[float]]:
@@ -114,7 +119,7 @@ async def _fetch_distance_column(
             "origins": "|".join(f"{lng:.6f},{lat:.6f}" for _, (lng, lat) in chunk),
             "destination": f"{dest[0]:.6f},{dest[1]:.6f}",
             "type": dtype,
-            "key": settings.amap_web_key,
+            "key": _amap_key(),
         }
         resp = await client.get(f"{AMAP_BASE}/v3/distance", params=params)
         resp.raise_for_status()
@@ -360,7 +365,7 @@ async def geocode_name(name: str, city: str = SHANGHAI_CITYCODE) -> tuple[float,
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             resp = await client.get(
                 f"{AMAP_BASE}/v3/geocode/geo",
-                params={"key": settings.amap_web_key, "address": name.strip(), "city": city},
+                params={"key": _amap_key(), "address": name.strip(), "city": city},
             )
             resp.raise_for_status()
             data = resp.json()
@@ -583,7 +588,7 @@ async def _fetch_direction(
 ) -> LegRoute | None:
     origin = f"{a[0]:.6f},{a[1]:.6f}"
     destination = f"{b[0]:.6f},{b[1]:.6f}"
-    common = {"origin": origin, "destination": destination, "key": settings.amap_web_key}
+    common = {"origin": origin, "destination": destination, "key": _amap_key()}
 
     if spec.amap_direction == "transit":
         # strategy 让高德按用户偏好先筛一遍：0 最快捷 / 1 最经济 / 2 最少换乘 / 3 最少步行
@@ -736,3 +741,4 @@ async def leg_route(
         approx=True,
         data_source="offline",
     )
+

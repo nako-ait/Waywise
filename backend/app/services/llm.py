@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from ..config import settings
+from . import keyring
 
 
 class LlmError(RuntimeError):
@@ -42,7 +43,24 @@ class LlmResult:
 
 
 def current_config() -> LlmConfig | None:
-    """按 .env 里的 LLM_PROVIDER 取配置；没配 Key 返回 None。"""
+    """优先用「本次请求携带的 Key」（前端个人页填的），没有就回落到 .env。"""
+    override_key = keyring.llm_key.get()
+    if override_key:
+        provider = (keyring.llm_provider.get() or settings.llm_provider or "deepseek").lower()
+        if provider in {"qwen", "dashscope", "tongyi"}:
+            base = keyring.llm_base_url.get() or settings.dashscope_base_url
+            model = keyring.llm_model.get() or settings.dashscope_model
+            provider = "qwen"
+        elif provider in {"zhipu", "glm"}:
+            base = keyring.llm_base_url.get() or settings.zhipu_base_url
+            model = keyring.llm_model.get() or settings.zhipu_model
+            provider = "zhipu"
+        else:
+            base = keyring.llm_base_url.get() or settings.deepseek_base_url
+            model = keyring.llm_model.get() or settings.deepseek_model
+            provider = "deepseek"
+        return LlmConfig(provider, base.rstrip("/"), override_key, model)
+
     provider = (settings.llm_provider or "deepseek").lower()
     if provider == "deepseek" and settings.deepseek_api_key:
         return LlmConfig("deepseek", settings.deepseek_base_url.rstrip("/"),

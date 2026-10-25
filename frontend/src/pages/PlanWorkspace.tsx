@@ -115,6 +115,12 @@ export default function PlanWorkspace() {
         if (parsed.unresolved.length) {
           pushAi(`这几个没认出来：${parsed.unresolved.join('、')}（可以换个说法再试）。`)
         }
+        // 大模型失败时把原因摊开说，别让人以为"AI 就是这样"
+        if (parsed.warnings?.length) {
+          pushAi(`⚠️ ${parsed.warnings[0]}`, '降级提示')
+        } else if (parsed.source !== 'llm') {
+          pushAi('当前用的是内置规则解析（没检测到可用的大模型 Key）。到「个人」页填 Key 后点「测试 AI 连接」。', '规则模式')
+        }
         return
       }
 
@@ -253,7 +259,13 @@ export default function PlanWorkspace() {
               </div>
             )}
           </div>
-          <div className="h-[300px] shrink-0">
+
+        </aside>
+
+        {/* 中间：地图 + 悬浮在左下角的 AI 助手 */}
+        <section className="relative min-w-0 flex-1">
+          <MapView />
+          <div className="absolute bottom-3 left-3 z-20 h-[300px] w-[360px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_20px_44px_-26px_rgba(15,23,42,.6)]">
             <ChatDock
               messages={messages}
               busy={busy}
@@ -266,11 +278,6 @@ export default function PlanWorkspace() {
               hint={planning ? '编译中…' : undefined}
             />
           </div>
-        </aside>
-
-        {/* 中间：地图 */}
-        <section className="relative min-w-0 flex-1">
-          <MapView />
         </section>
 
         {/* 右栏：竖排路书 */}
@@ -290,6 +297,8 @@ export default function PlanWorkspace() {
     </div>
   )
 }
+
+
 
 
 

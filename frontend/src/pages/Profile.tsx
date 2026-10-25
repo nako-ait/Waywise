@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { aiHealth } from '@/api/client'
 import { TRIP_GROUPS_DEFAULT, useTripStore } from '@/store/useTripStore'
 import { loadShares } from '@/lib/shareHistory'
 
@@ -20,6 +21,10 @@ export default function Profile() {
   // 密钥不预填：只显示掩码，改的时候才输入新的
   const [amapKey, setAmapKey] = useState('')
   const [llmKey, setLlmKey] = useState('')
+  const [provider, setProvider] = useState(profile?.llmProvider ?? 'deepseek')
+  const [model, setModel] = useState(profile?.llmModel ?? 'deepseek-chat')
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null)
   const shares = loadShares()
 
   const groups = Array.from(
@@ -119,7 +124,7 @@ export default function Profile() {
                 />
               </label>
               <label className="block text-[11px] text-slate-500">
-                大模型 Key（DeepSeek）
+                大模型 Key
                 <input
                   value={llmKey}
                   onChange={(event) => setLlmKey(event.target.value)}
@@ -127,24 +132,88 @@ export default function Profile() {
                   className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none focus:border-slate-800"
                 />
               </label>
-              <button
-                className="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white"
-                onClick={() => {
-                  const patch: { amapKey?: string; llmKey?: string } = {}
-                  if (amapKey.trim()) patch.amapKey = amapKey.trim()
-                  if (llmKey.trim()) patch.llmKey = llmKey.trim()
-                  if (!Object.keys(patch).length) {
-                    showToast('error', '先填一个 Key 再保存')
-                    return
-                  }
-                  saveProfile(patch)
-                  setAmapKey('')
-                  setLlmKey('')
-                  showToast('success', '密钥已保存到本地')
-                }}
-              >
-                保存密钥
-              </button>
+              <div className="flex gap-2">
+                <label className="block flex-1 text-[11px] text-slate-500">
+                  服务商
+                  <select
+                    value={provider}
+                    onChange={(event) => setProvider(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-xs outline-none focus:border-slate-800"
+                  >
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="qwen">通义千问（DashScope）</option>
+                    <option value="zhipu">智谱 GLM</option>
+                  </select>
+                </label>
+                <label className="block flex-1 text-[11px] text-slate-500">
+                  模型
+                  <input
+                    value={model}
+                    onChange={(event) => setModel(event.target.value)}
+                    placeholder="deepseek-chat"
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none focus:border-slate-800"
+                  />
+                </label>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  className="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white"
+                  onClick={() => {
+                    const patch: {
+                      amapKey?: string
+                      llmKey?: string
+                      llmProvider?: string
+                      llmModel?: string
+                    } = { llmProvider: provider, llmModel: model }
+                    if (amapKey.trim()) patch.amapKey = amapKey.trim()
+                    if (llmKey.trim()) patch.llmKey = llmKey.trim()
+                    saveProfile(patch)
+                    setAmapKey('')
+                    setLlmKey('')
+                    showToast('success', '密钥已保存（会随每次请求发给后端使用）')
+                  }}
+                >
+                  保存密钥
+                </button>
+                <button
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  disabled={testing}
+                  onClick={async () => {
+                    setTesting(true)
+                    setTestResult(null)
+                    try {
+                      const info = await aiHealth()
+                      setTestResult({
+                        ok: Boolean(info.ok),
+                        text: info.ok
+                          ? `连通正常 · ${info.provider ?? provider} / ${info.model ?? model}`
+                          : String(info.error || '未配置 Key'),
+                      })
+                    } catch (err) {
+                      setTestResult({
+                        ok: false,
+                        text: err instanceof Error ? err.message : '测试失败',
+                      })
+                    } finally {
+                      setTesting(false)
+                    }
+                  }}
+                >
+                  {testing ? '测试中…' : '测试 AI 连接'}
+                </button>
+              </div>
+              {testResult && (
+                <p
+                  className={`rounded-lg px-2.5 py-2 text-[11px] leading-5 ${
+                    testResult.ok
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : 'bg-red-50 text-red-700'
+                  }`}
+                >
+                  {testResult.ok ? '✅ ' : '❌ '}
+                  {testResult.text}
+                </p>
+              )}
             </div>
           </section>
 

@@ -2,6 +2,7 @@
  * 后端 API 客户端。
  * 统一处理：baseURL、超时、非 2xx 报错文案（把后端的 detail 透出来，方便现场排障）。
  */
+import { authHeaders } from '@/lib/authKeys'
 import type {
   AiExplainResponse,
   AiHealthInfo,
@@ -37,7 +38,8 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 3000
     const resp = await fetch(`${API_BASE}${path}`, {
       ...init,
       signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+      // 带上"个人页填的 Key"（没有就不带，后端回落到 .env）
+      headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(init.headers ?? {}) },
     })
     const text = await resp.text()
     const data = text ? JSON.parse(text) : null
