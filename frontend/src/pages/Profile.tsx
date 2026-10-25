@@ -61,26 +61,43 @@ export default function Profile() {
                   {profile.nickname.slice(0, 1)}
                 </span>
                 {profile.nickname}
-                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">已登录（本地）</span>
+                <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">
+                  已登录（本地）
+                </span>
               </div>
             ) : (
-              <div className="mt-3 flex gap-2">
-                <input
-                  value={nickname}
-                  onChange={(event) => setNickname(event.target.value)}
-                  placeholder="给自己起个名字"
-                  className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none focus:border-slate-800"
-                />
+              <div className="mt-3 space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    value={nickname}
+                    onChange={(event) => setNickname(event.target.value)}
+                    placeholder="给自己起个名字"
+                    className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none focus:border-slate-800"
+                  />
+                  <button
+                    className="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white disabled:bg-slate-300"
+                    disabled={!nickname.trim()}
+                    onClick={() => {
+                      saveProfile({ nickname: nickname.trim() })
+                      showToast('success', '已登录（本地账号）')
+                    }}
+                  >
+                    登录
+                  </button>
+                </div>
                 <button
-                  className="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white disabled:bg-slate-300"
-                  disabled={!nickname.trim()}
+                  className="w-full rounded-lg border border-dashed border-slate-300 py-2 text-[11px] text-slate-500 hover:border-slate-500 hover:text-slate-800"
                   onClick={() => {
-                    saveProfile({ nickname: nickname.trim() })
-                    showToast('success', '已登录（本地账号）')
+                    saveProfile({ nickname: '演示用户' })
+                    setNickname('演示用户')
+                    showToast('success', '已用演示账号登录（本地）')
                   }}
                 >
-                  登录
+                  一键体验登录（本地演示账号）
                 </button>
+                <p className="text-[10px] leading-4 text-slate-400">
+                  当前状态：未登录。登录态只存在这台浏览器里（localStorage），换浏览器/清缓存会丢。
+                </p>
               </div>
             )}
           </section>

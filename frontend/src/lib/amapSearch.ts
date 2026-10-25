@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 目的地在线搜索：高德 JS API 的 AutoComplete（输入联想）+ PlaceSearch（详情）。
  *
  * 为什么要两个插件配合：
@@ -19,7 +19,13 @@ import { loadAMap } from '@/lib/amap'
 import { coordsFrom, parseClosedWeekdays, parseOpenHours, tagsFromType } from '@/lib/amapParse'
 import { getAMap } from '@/lib/mapInstance'
 
-export const SEARCH_CITY = '上海'
+let searchCity = '上海'
+
+/** 切城市时调用：重置 AutoComplete 实例，让在线搜索按新城市过滤 */
+export function setSearchCity(cityName: string) {
+  searchCity = cityName
+  autoCompleteRef = null
+}
 /** 在线搜索的超时保护：高德的回调在断网时可能永远不回来 */
 const SEARCH_TIMEOUT_MS = 6000
 const ONLINE_LIMIT = 8
@@ -97,7 +103,7 @@ let placeSearchRef: any = null
 function autoCompleteSearch(AMap: any, keyword: string, limit: number): Promise<any[]> {
   if (!autoCompleteRef) {
     autoCompleteRef = new AMap.AutoComplete({
-      city: SEARCH_CITY,
+      city: searchCity,
       citylimit: true,
       // 只要 POI：默认的 'all' 会把公交线路也混进来，对旅行规划没有意义
       datatype: 'poi',
@@ -115,7 +121,7 @@ function autoCompleteSearch(AMap: any, keyword: string, limit: number): Promise<
 function placeDetail(AMap: any, poiId: string): Promise<any | null> {
   if (!placeSearchRef) {
     placeSearchRef = new AMap.PlaceSearch({
-      city: SEARCH_CITY,
+      city: searchCity,
       citylimit: true,
       extensions: 'all', // 必须 all 才有 biz_ext（营业时间/评分）
     })
@@ -263,3 +269,4 @@ export async function resolveSuggestion(suggestion: PlaceSuggestion): Promise<Pl
 export function originLabel(origin: PlaceSuggestion['origin']): string {
   return origin === 'amap' ? '在线' : '本地'
 }
+

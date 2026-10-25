@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+﻿import { useMemo, useState } from 'react'
 import { usePlanController } from '@/hooks/usePlanController'
 import { formatMinutes, formatMoney, straightKm } from '@/lib/geo'
 import { usePlanStale } from '@/lib/routeOrder'
@@ -15,6 +15,7 @@ export default function BottomBar() {
   const plan = useTripStore((s) => s.plan)
   const planError = useTripStore((s) => s.planError)
   const days = useTripStore((s) => s.days)
+  const setDays = useTripStore((s) => s.setDays)
   const { run, planning, prewarm } = usePlanController()
   const stale = usePlanStale()
 
@@ -56,6 +57,26 @@ export default function BottomBar() {
   return (
     <footer className="flex h-16 shrink-0 items-center gap-4 border-t border-slate-200 bg-white px-4">
       <ModeSwitch />
+
+      {/* 天数：意图卡删掉之后，天数收到这里 */}
+      <div className="flex items-center gap-1 border-l border-slate-200 pl-4">
+        <span className="text-[11px] text-slate-400">天数</span>
+        <button
+          className="h-5 w-5 rounded border border-slate-300 text-[11px] leading-none hover:bg-slate-50 disabled:opacity-40"
+          onClick={() => setDays(days - 1)}
+          disabled={days <= 1}
+        >
+          −
+        </button>
+        <b className="w-5 text-center text-sm text-slate-800">{days}</b>
+        <button
+          className="h-5 w-5 rounded border border-slate-300 text-[11px] leading-none hover:bg-slate-50 disabled:opacity-40"
+          onClick={() => setDays(days + 1)}
+          disabled={days >= 7}
+        >
+          +
+        </button>
+      </div>
 
       <div className="flex items-baseline gap-2 border-l border-slate-200 pl-4">
         <span className="text-[11px] text-slate-400">候选 / 选中</span>
@@ -138,3 +159,4 @@ export default function BottomBar() {
     </footer>
   )
 }
+

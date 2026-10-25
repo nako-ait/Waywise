@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { fromHereNavUrl, navHint, previousPointFor, stopNavUrl } from '@/lib/amapNav'
 import { formatMinutes, formatMoney } from '@/lib/geo'
 import { isClosedToday } from '@/lib/amapParse'
@@ -22,6 +22,7 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
   const setActiveDay = useTripStore((s) => s.setActiveDay)
   const destinations = useTripStore((s) => s.destinations)
   const weights = useTripStore((s) => s.weights)
+  const legModes = useTripStore((s) => s.legModes)
   const setLegMode = useTripStore((s) => s.setLegMode)
   const updateDestination = useTripStore((s) => s.updateDestination)
   const showToast = useTripStore((s) => s.showToast)
@@ -150,7 +151,8 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
                 {readOnly ? (
                   <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">{style.label}</span>
                 ) : (
-                  legSwitcher(stop.id, (leg?.mode as TravelMode) ?? currentMode)
+                  // 以 store 里的逐段覆盖为准（点了立刻高亮，不用等编译回来）
+                  legSwitcher(stop.id, (legModes[stop.id] as TravelMode) ?? (leg?.mode as TravelMode) ?? currentMode)
                 )}
                 <span>{leg ? `${Math.round(leg.durationMin)} 分 · ${leg.distanceKm} km` : '—'}</span>
                 {leg?.approx && <span>*</span>}
@@ -229,7 +231,10 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
           {readOnly ? (
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">{returnMode.label}</span>
           ) : (
-            legSwitcher('__return__', (day.returnLeg?.mode as TravelMode) ?? returnMode.key)
+            legSwitcher(
+              '__return__',
+              (legModes.__return__ as TravelMode) ?? (day.returnLeg?.mode as TravelMode) ?? returnMode.key,
+            )
           )}
           <span>
             {day.returnLeg
@@ -286,3 +291,4 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
     </div>
   )
 }
+

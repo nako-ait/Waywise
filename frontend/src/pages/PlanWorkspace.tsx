@@ -1,30 +1,36 @@
 ﻿import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { aiParse, aiReplan } from '@/api/client'
+import AddStopDialog from '@/components/AddStopDialog'
 import ChatDock, { type ChatMessage } from '@/components/ChatDock'
 import HotelPanel from '@/components/HotelPanel'
-import IntentCard from '@/components/IntentCard'
 import MapView from '@/components/MapView'
 import PoiQuickAdd from '@/components/PoiQuickAdd'
 import TimelineVertical from '@/components/TimelineVertical'
 import BottomBar from '@/components/BottomBar'
+import { getCity } from '@/data/cities'
 import { usePlanController } from '@/hooks/usePlanController'
 import { uid } from '@/lib/id'
+import { setSearchCity } from '@/lib/amapSearch'
 import { usePlanStale } from '@/lib/routeOrder'
 import { useTripStore } from '@/store/useTripStore'
 import type { AiReplanConstraints } from '@/types'
 
 /**
- * 工作台：左（地点/意图卡 + 左下角 AI 对话）｜中（地图）｜右（竖排路书）
+ * 工作台：左（起点/搜索 + 左下角 AI 对话）｜中（地图）｜右（可互动的竖排路书）
  *
  * 关键流程（1.1）：
  *   第一句话 → 只做"解析 + 在地图上标点"，不编译；
  *   后续每句话 → 增量改参数并重新编译；
- *   也可以随时点意图卡上的「编译路书」。
+ *   底栏「一键编译路书」随时可手动编译。
  */
 export default function PlanWorkspace() {
+  const navigate = useNavigate()
   const { run, planning, buildPayload } = usePlanController()
   const stale = usePlanStale()
   const plan = useTripStore((s) => s.plan)
+  const cityId = useTripStore((s) => s.cityId)
+  const city = getCity(cityId)
   const pendingPrompt = useTripStore((s) => s.pendingPrompt)
   const setPendingPrompt = useTripStore((s) => s.setPendingPrompt)
   const addDestinations = useTripStore((s) => s.addDestinations)
@@ -42,8 +48,8 @@ export default function PlanWorkspace() {
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
-  const [source, setSource] = useState<'llm' | 'rules' | null>(null)
   const [hotelOpen, setHotelOpen] = useState(false)
+  const [cityAddOpen, setCityAddOpen] = useState(false)
   const startedRef = useRef(false)
 
   const hotel = useTripStore((s) => s.hotel)
@@ -82,7 +88,6 @@ export default function PlanWorkspace() {
       if (!hasPlaces) {
         // 第一轮：只解析 + 标点，不编译
         const parsed = await aiParse(text)
-        setSource(parsed.source === 'llm' ? 'llm' : 'rules')
         if (!parsed.places.length) {
           pushAi('没听出具体地点。可以直接说地名，比如「外滩、豫园、武康路」。')
           return
@@ -115,7 +120,6 @@ export default function PlanWorkspace() {
 
       // 后续轮次：增量改参数 + 重新编译
       const result = await aiReplan({ ...buildPayload(), text })
-      setSource(result.source === 'llm' ? 'llm' : 'rules')
       applyConstraints(result.constraints as AiReplanConstraints, result.removed)
       // 用后端算好的路书覆盖，并把指纹对齐
       setPlan(result.plan)
@@ -144,15 +148,41 @@ export default function PlanWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingPrompt])
 
+  // 切城市时让在线搜索也按新城市过滤
+  useEffect(() => {
+    setSearchCity(city.name)
+  }, [city.name])
+
   function handleSave() {
     const record = saveTrip()
     showToast('success', `已保存「${record.title}」到「${record.group}」`)
+  }
+
+  function addCityPoi(name: string) {
+    const poi = city.pois.find((item) => item.name === name)
+    if (!poi) return
+    const { added } = addDestinations([
+      {
+        name: poi.name,
+        lng: poi.lng,
+        lat: poi.lat,
+        source: 'import',
+        selected: true,
+        stayMin: poi.stayMin,
+        openTime: poi.openTime,
+        closeTime: poi.closeTime,
+        tags: poi.tags,
+        address: poi.district,
+      },
+    ])
+    showToast(added ? 'success' : 'error', added ? `已加入「${poi.name}」` : '这个地点已经在列表里了')
   }
 
   return (
     <div className="flex h-full flex-col bg-slate-100">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4">
         <span className="text-sm font-semibold text-slate-900">{title}</span>
+        <span className="rounded bg-slate-900 px-1.5 py-0.5 text-[10px] text-white">{city.name}</span>
         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
           {profile ? profile.nickname : '本地草稿'}
         </span>
@@ -160,6 +190,12 @@ export default function PlanWorkspace() {
           {planning ? '编译中…' : stale ? '参数已改，待重算' : plan ? '已编译' : '未编译'}
         </span>
         <div className="ml-auto flex items-center gap-2">
+          <button
+            className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] text-slate-600 hover:bg-slate-50"
+            onClick={() => navigate('/')}
+          >
+            换城市
+          </button>
           <button
             className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] text-slate-600 hover:bg-slate-50"
             onClick={handleSave}
@@ -170,7 +206,7 @@ export default function PlanWorkspace() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* 左栏：地点 / 意图卡 + 左下角对话 */}
+        {/* 左栏：起点 / 搜索 + 左下角对话 */}
         <aside className="flex w-[380px] shrink-0 flex-col border-r border-slate-200 bg-white">
           <div className="tc-scroll min-h-0 flex-1 overflow-y-auto">
             <button
@@ -185,13 +221,37 @@ export default function PlanWorkspace() {
               </span>
             </button>
             {hotelOpen && <HotelPanel />}
-            <PoiQuickAdd />
-            <IntentCard
-              onCompile={() => void run()}
-              compiling={planning}
-              source={source}
-              stale={stale}
-            />
+
+            {city.id === 'shanghai' ? (
+              <PoiQuickAdd />
+            ) : (
+              <div className="border-b border-slate-100 px-3 py-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] font-semibold text-slate-700">
+                    {city.name} · 添加地点
+                  </span>
+                  <span className="text-[10px] text-slate-400">{city.pois.length} 个示例地标</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {city.pois.map((poi) => (
+                    <button
+                      key={poi.name}
+                      className="max-w-full truncate rounded-full border border-slate-200 px-2 py-0.5 text-[10.5px] text-slate-600 hover:border-slate-400 hover:text-slate-900"
+                      onClick={() => addCityPoi(poi.name)}
+                      title={poi.name}
+                    >
+                      + {poi.name}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  className="mt-2 text-[10px] text-slate-400 hover:text-slate-700"
+                  onClick={() => setCityAddOpen(true)}
+                >
+                  搜索更多 ›
+                </button>
+              </div>
+            )}
           </div>
           <div className="h-[300px] shrink-0">
             <ChatDock
@@ -200,7 +260,7 @@ export default function PlanWorkspace() {
               onSend={(text) => void handleSend(text)}
               examples={
                 messages.length <= 1
-                  ? ['2 天，用地铁', '少走路，6 点前回酒店', '不想去田子坊了']
+                  ? ['2 天，用地铁', '少走路，6 点前回酒店', '别排太满']
                   : ['改成 3 天', '省点钱', '多拍照，别太赶']
               }
               hint={planning ? '编译中…' : undefined}
@@ -220,7 +280,17 @@ export default function PlanWorkspace() {
       </div>
 
       <BottomBar />
+
+      <AddStopDialog
+        open={cityAddOpen}
+        onClose={() => setCityAddOpen(false)}
+        pool={city.pois}
+        onAdded={() => window.setTimeout(() => void run(), 0)}
+      />
     </div>
   )
 }
+
+
+
 

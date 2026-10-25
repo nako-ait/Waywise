@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import type { CityPoi } from '@/data/cities'
 import { SHANGHAI_POIS } from '@/data/shanghaiPois'
 import { useTripStore } from '@/store/useTripStore'
 import Modal from './Modal'
@@ -7,20 +8,23 @@ interface Props {
   open: boolean
   onClose: () => void
   onAdded?: () => void
+  /** 该城市可选的地点点池；不传就用上海 276 条 */
+  pool?: CityPoi[]
 }
 
-/** 在时间轴上补一个地点：本地 276 条预置 POI 里搜，选中即加入并重算 */
-export default function AddStopDialog({ open, onClose, onAdded }: Props) {
+/** 在时间轴上补一个地点：从（该城市）预置 POI 里搜，选中即加入并重算 */
+export default function AddStopDialog({ open, onClose, onAdded, pool }: Props) {
   const [keyword, setKeyword] = useState('')
   const addDestinations = useTripStore((s) => s.addDestinations)
   const showToast = useTripStore((s) => s.showToast)
+  const source: CityPoi[] = pool && pool.length ? pool : SHANGHAI_POIS
 
   const results = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
     const used = new Set(useTripStore.getState().destinations.map((d) => d.name))
-    const pool = SHANGHAI_POIS.filter((poi) => !used.has(poi.name))
-    if (!kw) return pool.slice(0, 8)
-    return pool
+    const list = source.filter((poi) => !used.has(poi.name))
+    if (!kw) return list.slice(0, 8)
+    return list
       .filter(
         (poi) =>
           poi.name.toLowerCase().includes(kw) ||
@@ -28,10 +32,10 @@ export default function AddStopDialog({ open, onClose, onAdded }: Props) {
           poi.district?.includes(keyword.trim()),
       )
       .slice(0, 10)
-  }, [keyword, open])
+  }, [keyword, open, source])
 
   function add(name: string) {
-    const poi = SHANGHAI_POIS.find((item) => item.name === name)
+    const poi = source.find((item) => item.name === name)
     if (!poi) return
     const { added } = addDestinations([
       {

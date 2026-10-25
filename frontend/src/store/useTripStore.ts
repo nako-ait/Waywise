@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 全局状态：Zustand + persist(localStorage)
  *
  * 设计要点：
@@ -22,6 +22,7 @@ import type {
   Weights,
 } from '@/types'
 import { DEFAULT_WEIGHTS } from '@/types'
+import { getCity } from '@/data/cities'
 import { uid } from '@/lib/id'
 import { haversineM } from '@/lib/geo'
 
@@ -108,6 +109,8 @@ export interface TripState {
   toast: { id: number; kind: 'success' | 'error'; text: string } | null
 
   // —— 规划参数（模块 2/3 使用，先落库避免后面改结构） ——
+  /** 当前城市（首页选择，工作台沿用） */
+  cityId: string
   days: number
   mode: TravelMode
   /** 逐段覆盖：目的地 id → 该段交通方式；"__return__" 表示回程 */
@@ -161,6 +164,8 @@ export interface TripState {
   setSelected: (id: string, selected: boolean) => void
   selectAll: () => void
   deselectAll: () => void
+  /** 切城市：清空当前草稿并把酒店/视野落到该城市 */
+  setCity: (cityId: string) => void
   setDays: (days: number) => void
   setMode: (mode: TravelMode) => void
   /** 改某一段的交通方式（destId = 目的地 id，"__return__" 表示回程） */
@@ -386,6 +391,7 @@ export const useTripStore = create<TripState>()(
       profile: null,
       activeTripId: null,
       pendingPrompt: null,
+      cityId: 'shanghai',
       days: 1,
       mode: 'transit',
       legModes: {},
@@ -469,6 +475,23 @@ export const useTripStore = create<TripState>()(
 
       deselectAll: () =>
         set((s) => ({ destinations: s.destinations.map((d) => ({ ...d, selected: false })) })),
+
+      setCity: (cityId) => {
+        const city = getCity(cityId)
+        set({
+          cityId: city.id,
+          destinations: [],
+          plan: null,
+          planSignature: null,
+          planError: null,
+          activeDay: 0,
+          legModes: {},
+          days: 1,
+          hotel: { name: city.hotel.name, lng: city.hotel.lng, lat: city.hotel.lat, address: city.name },
+          hotelConfirmed: true,
+          view: { lng: city.center.lng, lat: city.center.lat, zoom: city.center.zoom },
+        })
+      },
 
       setDays: (days) => set({ days: Math.min(7, Math.max(1, Math.round(days))) }),
       setMode: (mode) => set({ mode, legModes: {} }),
@@ -630,7 +653,7 @@ export const useTripStore = create<TripState>()(
     }),
     {
       name: 'tripcompiler:v1',
-      version: 4,
+      version: 5,
       storage: createJSONStorage(() => localStorage),
       // v1 -> v2：新增 options / plan / planSignature
       // v2 -> v3：新增多路书 trips / 本地账号 profile / activeTripId
@@ -645,6 +668,7 @@ export const useTripStore = create<TripState>()(
           profile: state.profile ?? null,
           activeTripId: state.activeTripId ?? null,
           legModes: state.legModes ?? {},
+          cityId: state.cityId ?? 'shanghai',
         } as TripState
       },
       // 只持久化业务数据与视野，运行时状态（mapReady / planning）不落盘
@@ -652,6 +676,7 @@ export const useTripStore = create<TripState>()(
         hotel: s.hotel,
         hotelConfirmed: s.hotelConfirmed,
         destinations: s.destinations,
+        cityId: s.cityId,
         days: s.days,
         mode: s.mode,
         legModes: s.legModes,
@@ -681,4 +706,5 @@ export const useTripStore = create<TripState>()(
  */
 export const selectSelectedDestinations = (s: TripState): Destination[] =>
   s.destinations.filter((d) => d.selected)
+
 
