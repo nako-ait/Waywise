@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { aiParse, aiReplan } from '@/api/client'
 import AddStopDialog from '@/components/AddStopDialog'
@@ -212,31 +212,35 @@ export default function PlanWorkspace() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* 左栏：起点 / 搜索 + 左下角对话 */}
+        {/* 左栏：整栏给 AI 助手 */}
         <aside className="flex w-[380px] shrink-0 flex-col border-r border-slate-200 bg-white">
-          <div className="tc-scroll min-h-0 flex-1 overflow-y-auto">
-            <button
-              className="flex w-full items-center gap-2 border-b border-slate-200 px-3 py-2 text-left hover:bg-slate-50"
-              onClick={() => setHotelOpen((value) => !value)}
-            >
-              <span className="h-2.5 w-2.5 rounded-[3px] bg-[#1d4ed8]" />
-              <span className="text-[11.5px] font-medium text-slate-700">出发酒店</span>
-              <span className="min-w-0 truncate text-[11px] text-slate-500">{hotel.name}</span>
-              <span className="ml-auto shrink-0 text-[10px] text-slate-400">
-                {hotelOpen ? '收起' : '更换'}
-              </span>
-            </button>
-            {hotelOpen && <HotelPanel />}
+          <ChatDock
+            messages={messages}
+            busy={busy}
+            onSend={(text) => void handleSend(text)}
+            examples={
+              messages.length <= 1
+                ? ['2 天，用地铁', '少走路，6 点前回酒店', '别排太满']
+                : ['改成 3 天', '省点钱', '多拍照，别太赶']
+            }
+            hint={planning ? '编译中…' : undefined}
+          />
+        </aside>
 
+        {/* 中间：地图（左上角悬浮搜索 / 城市地标） */}
+        <section className="relative min-w-0 flex-1">
+          <MapView />
+
+          <div className="absolute left-3 top-3 z-20 w-[320px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_18px_40px_-28px_rgba(15,23,42,.6)]">
             {city.id === 'shanghai' ? (
               <PoiQuickAdd />
             ) : (
-              <div className="border-b border-slate-100 px-3 py-2">
+              <div className="px-3 py-2">
                 <div className="flex items-center justify-between">
                   <span className="text-[12px] font-semibold text-slate-700">
                     {city.name} · 添加地点
                   </span>
-                  <span className="text-[10px] text-slate-400">{city.pois.length} 个示例地标</span>
+                  <span className="text-[10px] text-slate-400">{city.pois.length} 个地标</span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1">
                   {city.pois.map((poi) => (
@@ -259,30 +263,29 @@ export default function PlanWorkspace() {
               </div>
             )}
           </div>
-
-        </aside>
-
-        {/* 中间：地图 + 悬浮在左下角的 AI 助手 */}
-        <section className="relative min-w-0 flex-1">
-          <MapView />
-          <div className="absolute bottom-3 left-3 z-20 h-[300px] w-[360px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_20px_44px_-26px_rgba(15,23,42,.6)]">
-            <ChatDock
-              messages={messages}
-              busy={busy}
-              onSend={(text) => void handleSend(text)}
-              examples={
-                messages.length <= 1
-                  ? ['2 天，用地铁', '少走路，6 点前回酒店', '别排太满']
-                  : ['改成 3 天', '省点钱', '多拍照，别太赶']
-              }
-              hint={planning ? '编译中…' : undefined}
-            />
-          </div>
         </section>
 
-        {/* 右栏：竖排路书 */}
-        <aside className="w-[340px] shrink-0 border-l border-slate-200 bg-white">
-          <TimelineVertical />
+        {/* 右栏：出发酒店 + 竖排路书 */}
+        <aside className="flex w-[340px] shrink-0 flex-col border-l border-slate-200 bg-white">
+          <button
+            className="flex w-full shrink-0 items-center gap-2 border-b border-slate-200 px-3 py-2 text-left hover:bg-slate-50"
+            onClick={() => setHotelOpen((value) => !value)}
+          >
+            <span className="h-2.5 w-2.5 rounded-[3px] bg-[#1d4ed8]" />
+            <span className="text-[11.5px] font-medium text-slate-700">出发酒店</span>
+            <span className="min-w-0 truncate text-[11px] text-slate-500">{hotel.name}</span>
+            <span className="ml-auto shrink-0 text-[10px] text-slate-400">
+              {hotelOpen ? '收起' : '更换'}
+            </span>
+          </button>
+          {hotelOpen && (
+            <div className="tc-scroll max-h-[45%] shrink-0 overflow-y-auto border-b border-slate-200">
+              <HotelPanel />
+            </div>
+          )}
+          <div className="min-h-0 flex-1">
+            <TimelineVertical />
+          </div>
         </aside>
       </div>
 
