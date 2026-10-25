@@ -128,8 +128,8 @@ def main() -> int:
     ok &= test_parse(client, "今天天气不错", [])
 
     print("\n【2. 一句话重规划】")
-    ok &= test_replan(client, "少走路，多拍照，6 点前回酒店", ["walking", "18:00"])
-    ok &= test_replan(client, "改成 3 天，用地铁，省点钱", ["3", "地铁", "cost"])
+    ok &= test_replan(client, "少走路，多拍照，6 点前回酒店", ["少走路", "18:00"])
+    ok &= test_replan(client, "改成 3 天，用地铁，省点钱", ["3", "地铁", "省钱"])
     ok &= test_replan(client, "我不想去田子坊了", ["移除"])
 
     print("\n【3. 路线解释】")
