@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 后端 API 客户端。
  * 统一处理：baseURL、超时、非 2xx 报错文案（把后端的 detail 透出来，方便现场排障）。
  */
@@ -36,7 +36,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * 统一入口：网络层失败（TypeError）自动重试一次。
+ * 为什么：后端重启、代理抖动都只是一瞬间，用户不该看到一次失败就没救。
+ */
 async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 30000): Promise<T> {
+  try {
+    return await requestOnce<T>(path, init, timeoutMs)
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.message !== '连不上后端') throw err
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    return requestOnce<T>(path, init, timeoutMs)
+  }
+}
+
+async function requestOnce<T>(path: string, init: RequestInit = {}, timeoutMs = 30000): Promise<T> {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -47,9 +61,16 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 3000
       headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(init.headers ?? {}) },
     })
     const text = await resp.text()
-    const data = text ? JSON.parse(text) : null
+    let data: unknown = null
+    try {
+      data = text ? JSON.parse(text) : null
+    } catch {
+      // 后端 500 时可能返回 HTML，别把它误报成"连不上后端"
+      throw new ApiError(`后端返回了非 JSON（HTTP ${resp.status}）`, resp.status, text.slice(0, 200))
+    }
     if (!resp.ok) {
-      const detail = typeof data?.detail === 'string' ? data.detail : text.slice(0, 200)
+      const payload = data as { detail?: unknown } | null
+      const detail = typeof payload?.detail === 'string' ? payload.detail : text.slice(0, 200)
       throw new ApiError(`后端返回 ${resp.status}`, resp.status, detail)
     }
     return data as T
@@ -164,3 +185,4 @@ export function aiApply(
 ): Promise<AiApplyResponse> {
   return request<AiApplyResponse>('/api/ai/apply', { method: 'POST', body: JSON.stringify(payload) }, 90000)
 }
+

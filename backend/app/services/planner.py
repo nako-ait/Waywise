@@ -435,6 +435,28 @@ async def create_plan(req: PlanRequest) -> PlanResponse:
         totalCost=round(sum(r.day.stats.totalCost for r in day_results), 2),
     )
 
+    total_stats = total_stats  # noqa: PLW0127 - 仅提示：下面按 limits 做校验
+    limits = getattr(req, "limits", None)
+    limit_report: dict | None = None
+    if limits is not None and (limits.budgetCap is not None or limits.transitCapMin is not None):
+        violations: list[str] = []
+        if limits.budgetCap is not None and total_stats.totalCost > limits.budgetCap:
+            violations.append(
+                f"费用约 ¥{total_stats.totalCost:.0f}，超出你给的 ¥{limits.budgetCap:.0f} 预算"
+            )
+        if limits.transitCapMin is not None and total_stats.totalTransitMin > limits.transitCapMin:
+            violations.append(
+                f"路上约 {total_stats.totalTransitMin:.0f} 分钟，超出你给的 {limits.transitCapMin:.0f} 分钟上限"
+            )
+        limit_report = {
+            "budgetCap": limits.budgetCap,
+            "transitCapMin": limits.transitCapMin,
+            "actualCost": total_stats.totalCost,
+            "actualTransitMin": total_stats.totalTransitMin,
+            "violations": violations,
+        }
+        warnings.extend(violations)
+
     return PlanResponse(
         days=[r.day for r in day_results],
         explanation=_explain_overall(
@@ -462,6 +484,7 @@ async def create_plan(req: PlanRequest) -> PlanResponse:
             "visitedCount": sum(len(r.day.stops) for r in day_results),
             "requestedCount": len(picked),
             "totalStats": total_stats.model_dump(),
+            "limits": limit_report,
             "warnings": warnings,
             "cache": cache.stats(),
             "legsApprox": sum(

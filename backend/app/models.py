@@ -1,4 +1,4 @@
-﻿"""核心数据模型（Pydantic v2）。
+"""核心数据模型（Pydantic v2）。
 
 字段命名刻意保持 camelCase，与前端 TypeScript 类型一一对应，
 前后端 JSON 直接互通、无需 alias 转换。
@@ -142,6 +142,13 @@ class PlanOptions(BaseModel):
     mustVisitIds: list[str] = Field(default_factory=list)
 
 
+class TripLimits(BaseModel):
+    """硬性上限：预算（元）与路上时间（分钟）。planner 会校验并在 solver.limits 里回报。"""
+
+    budgetCap: float | None = None
+    transitCapMin: float | None = None
+
+
 class PlanRequest(BaseModel):
     hotel: Hotel
     destinations: list[Destination]
@@ -149,6 +156,7 @@ class PlanRequest(BaseModel):
     mode: TravelMode = "transit"
     # 逐段覆盖：目的地 id → 该段交通方式；"__return__" 表示回酒店那一段
     legModes: dict[str, str] | None = None
+    limits: TripLimits | None = None
     weights: Weights = Field(default_factory=Weights)
     naturalLanguage: str | None = None
     options: PlanOptions = Field(default_factory=PlanOptions)

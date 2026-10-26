@@ -1,4 +1,4 @@
-﻿"""对话层（v1.9）：**先确认，再动手**。
+"""对话层（v1.9）：**先确认，再动手**。
 
 用户说一句话，这里只产出「提案」（要改什么），不执行；用户点确认后
 `/api/ai/apply` 才真正改参数、跑求解器，并返回一句变更回执。
@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..models import Destination, PlanResponse
+from ..models import Destination, PlanResponse, TripLimits
 from . import nlp_rules
 from .planner import create_plan
 from .poi_store import load_pois, search_pois
@@ -167,6 +167,35 @@ def build_proposal(
     return result
 
 
+def _parse_limits(text: str) -> dict[str, float]:
+    """从一句话里抠出「预算上限」和「路上时间上限」。
+
+    这是用户最常给、而我们以前完全不认的两类硬约束：
+      · 「全程费用预算 150」「150 元以内」 → budgetCap
+      · 「交通时间压缩到 5 小时以内」「路上不超过 90 分钟」 → transitCapMin
+    """
+    limits: dict[str, float] = {}
+    budget = re.search(r"(?:预算|费用|花费|人均)[^\d]{0,8}(\d{2,5})", text) or re.search(
+        r"(\d{2,5})\s*元?\s*(?:以内|以下|之内|封顶)", text
+    )
+    if budget:
+        value = float(budget.group(1))
+        if 20 <= value <= 20000:
+            limits["budgetCap"] = value
+
+    transit = re.search(
+        r"(?:交通|路上|路程|通勤|车程|坐车)[^\d]{0,8}(\d{1,2}(?:\.\d)?)\s*(个?小时|h|小时|分钟|min)",
+        text,
+    )
+    if transit:
+        amount = float(transit.group(1))
+        unit = transit.group(2)
+        minutes = amount * 60 if ("小时" in unit or unit == "h") else amount
+        if 10 <= minutes <= 600:
+            limits["transitCapMin"] = round(minutes)
+    return limits
+
+
 def _extract_ops(
     text: str,
     index: dict[str, dict],
@@ -187,14 +216,40 @@ def _extract_ops(
         preview.append(f"天数改成 {raw['days']} 天")
         reply_parts.append(f"{raw['days']} 天")
 
-    # 交通方式
-    if raw.get("mode") in MODE_LABELS and raw["mode"] != mode:
+    def negated(keyword: str) -> bool:
+        """判断某个词是不是被否定了：不要全部都打车 / 不是省钱。"""
+        return re.search(r"(?:不(?:是|要|想|用|会)|别|避免)[^，。；]{0,10}" + re.escape(keyword), text) is not None
+
+    # 交通方式（被否定的不提：不要全部都打车 → 不改交通方式）
+    if raw.get("mode") in MODE_LABELS and raw["mode"] != mode and not negated(MODE_LABELS[raw["mode"]]):
         ops["mode"] = raw["mode"]
         preview.append(f"全程改为{MODE_LABELS[raw['mode']]}")
         reply_parts.append(f"改{MODE_LABELS[raw['mode']]}")
 
+    # 硬上限：预算 / 路上时间（这两条以前完全没有概念，用户说了也白说）
+    limits = _parse_limits(text)
+    if limits:
+        ops["limits"] = limits
+        if "budgetCap" in limits:
+            preview.append(f"预算上限 ¥{limits['budgetCap']:.0f}")
+            reply_parts.append(f"预算 ¥{limits['budgetCap']:.0f}")
+        if "transitCapMin" in limits:
+            hours = limits["transitCapMin"] / 60
+            label = f"{hours:g} 小时" if hours >= 1 else f"{limits['transitCapMin']:.0f} 分钟"
+            preview.append(f"路上时间上限 {label}")
+            reply_parts.append(f"路上 {label}")
+
     # 权重
-    changed_weights = {k: v for k, v in (raw.get("weights") or {}).items() if k in WEIGHT_LABELS}
+    changed_weights = {
+        k: v
+        for k, v in (raw.get("weights") or {}).items()
+        if k in WEIGHT_LABELS and not negated(WEIGHT_LABELS[k])
+    }
+    # 给了预算上限就不必再叠一层"省钱"权重；反过来，"节省交通时间"要显式抬时间权重
+    if "budgetCap" in limits:
+        changed_weights.pop("cost", None)
+    if re.search(r"节省?(?:交通)?时间|压缩.{0,4}时间|赶时间|快点|别太久", text):
+        changed_weights.setdefault("time", 0.9)
     if changed_weights:
         ops["weights"] = changed_weights
         preview.append("更看重" + "、".join(WEIGHT_LABELS[k] for k in changed_weights))
@@ -277,6 +332,9 @@ async def apply_ops(base_req: Any, ops: dict[str, Any]) -> tuple[PlanResponse, l
             "weights": weights,
             "options": options,
             "legModes": {} if ops.get("mode") else getattr(base_req, "legModes", None),
+            "limits": TripLimits(**ops["limits"])
+            if ops.get("limits")
+            else getattr(base_req, "limits", None),
         }
     )
     plan = await create_plan(new_req)
@@ -294,6 +352,17 @@ async def apply_ops(base_req: Any, ops: dict[str, Any]) -> tuple[PlanResponse, l
         changes.append(f"{days} 天")
     if ops.get("times"):
         changes.append("时间已更新")
+    limit_info = (plan.solver or {}).get("limits") or {}
+    violations = list(limit_info.get("violations") or [])
+    if violations:
+        changes.append("⚠ " + "；".join(violations))
+    elif limit_info:
+        changes.append(
+            f"预算 ¥{limit_info.get('actualCost', 0):.0f}/"
+            f"{limit_info.get('budgetCap') or '-'} · 路上 {limit_info.get('actualTransitMin', 0):.0f} 分钟"
+        )
     changes.append("已重新编译")
     return plan, changes, " · ".join(changes)
+
+
 
