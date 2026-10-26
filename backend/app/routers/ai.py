@@ -1,4 +1,4 @@
-"""AI 能力接口（模块 4）。
+﻿"""AI 能力接口（模块 4）。
 
 GET  /api/ai/health    探活：Key 配了没、能不能真的调通
 POST /api/ai/parse     自然语言 → 目的地列表（Function Calling → 地理编码 → 自动标点）
@@ -23,7 +23,7 @@ from ..models import (
     AiReplanRequest,
     AiReplanResponse,
 )
-from ..services import agent, ai_service, llm
+from ..services import agent, ai_service, llm, turn_graph
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -54,16 +54,18 @@ async def post_parse(req: AiParseRequest) -> AiParseResponse:
 async def post_turn(req: AiTurnRequest) -> AiTurnResponse:
     """先出提案（不执行）：告诉用户准备改什么，等确认。有 Key 时由模型出提案。"""
     text = _validate_text(req.text)
-    proposal, source = await agent.propose_with_llm(
+    proposal, source = await turn_graph.run_turn(
         text,
-        used_names={d.name for d in req.destinations},
-        city_pois=req.cityPois,
-        days=req.days,
-        mode=req.mode,
-        weights=req.weights.model_dump(),
-        has_places=any(d.selected for d in req.destinations),
-        city_name=req.cityName,
-        history=req.history,
+        {
+            "used_names": {d.name for d in req.destinations},
+            "city_pois": req.cityPois,
+            "days": req.days,
+            "mode": req.mode,
+            "weights": req.weights.model_dump(),
+            "has_places": any(d.selected for d in req.destinations),
+            "city_name": req.cityName,
+            "history": req.history,
+        },
     )
     return AiTurnResponse(
         kind=proposal.kind,
@@ -95,4 +97,7 @@ async def post_explain(req: AiExplainRequest) -> AiExplainResponse:
     if not req.plan.days:
         raise HTTPException(status_code=400, detail="路书为空，先编译一份再解释")
     return await ai_service.explain(req.plan, req.question)
+
+
+
 

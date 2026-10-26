@@ -130,10 +130,10 @@ def build_proposal(
     # 1) 能力边界：先承认，再给替代
     for pattern, label, message in BOUNDARIES:
         if pattern.search(clean):
-            ops = {}
+            ops: dict[str, Any] = {}
             others = _extract_ops(clean, index, used_names, days, mode, weights, has_places)
-            if others:
-                ops = others.get("ops", {})
+            if others is not None and isinstance(others.ops, dict):
+                ops = others.ops
             return Proposal(
                 kind="answer",
                 reply=message,
@@ -364,7 +364,7 @@ async def apply_ops(base_req: Any, ops: dict[str, Any]) -> tuple[PlanResponse, l
         changes.append(f"＋{len(added_names)} 地点")
     if removed_real:
         changes.append(f"－{len(removed_real)} 地点")
-    if ops.get("mode"):
+    if ops.get("mode") and not changes_extra:
         changes.append(f"交通改为{MODE_LABELS.get(str(ops['mode']), ops['mode'])}")
     if ops.get("weights"):
         changes.append("偏好已更新")
@@ -534,3 +534,33 @@ async def propose_with_llm(
         ),
         "rules",
     )
+
+
+def proposal_from_llm_args(args: dict, *, index: dict[str, dict], used_names: set[str]) -> Proposal | None:
+    """把模型的工具参数变成提案（LangGraph 的 propose 节点与旧路径共用）。"""
+    reply = str((args or {}).get("reply") or "").strip()
+    ops = _ops_from_arguments(args or {}, index)
+    boundary = str((args or {}).get("boundary") or "").strip()
+    clarify = str((args or {}).get("clarify") or "").strip()
+
+    if boundary:
+        return Proposal(kind="answer", reply=_short(boundary), ops=ops, warnings=["无数据源"])
+    if clarify:
+        return Proposal(
+            kind="clarify",
+            reply=_short(reply or "还需要确认一下。"),
+            question=clarify,
+            ops=ops,
+        )
+    if ops:
+        return Proposal(
+            kind="act",
+            reply=_short(reply or "收到，确认后我再改动。"),
+            preview=_preview_from_ops(ops),
+            ops=ops,
+        )
+    if reply:
+        return Proposal(kind="answer", reply=_short(reply), ops={})
+    return None
+
+
