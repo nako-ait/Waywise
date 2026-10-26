@@ -1,4 +1,4 @@
-"""AI 能力接口（模块 4）。
+﻿"""AI 能力接口（模块 4）。
 
 GET  /api/ai/health    探活：Key 配了没、能不能真的调通
 POST /api/ai/parse     自然语言 → 目的地列表（Function Calling → 地理编码 → 自动标点）
@@ -12,6 +12,10 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from ..models import (
+    AiApplyRequest,
+    AiApplyResponse,
+    AiTurnRequest,
+    AiTurnResponse,
     AiExplainRequest,
     AiExplainResponse,
     AiParseRequest,
@@ -19,7 +23,7 @@ from ..models import (
     AiReplanRequest,
     AiReplanResponse,
 )
-from ..services import ai_service, llm
+from ..services import agent, ai_service, llm
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -46,6 +50,37 @@ async def post_parse(req: AiParseRequest) -> AiParseResponse:
     return await ai_service.parse_places(_validate_text(req.text))
 
 
+@router.post("/turn", response_model=AiTurnResponse)
+async def post_turn(req: AiTurnRequest) -> AiTurnResponse:
+    """先出提案（不执行）：告诉用户准备改什么，等确认。"""
+    text = _validate_text(req.text)
+    proposal = agent.build_proposal(
+        text,
+        used_names={d.name for d in req.destinations},
+        city_pois=req.cityPois,
+        days=req.days,
+        mode=req.mode,
+        weights=req.weights.model_dump(),
+        has_places=any(d.selected for d in req.destinations),
+    )
+    return AiTurnResponse(
+        kind=proposal.kind,
+        reply=proposal.reply,
+        preview=proposal.preview,
+        question=proposal.question,
+        options=proposal.options,
+        ops=proposal.ops,
+        warnings=proposal.warnings,
+    )
+
+
+@router.post("/apply", response_model=AiApplyResponse)
+async def post_apply(req: AiApplyRequest) -> AiApplyResponse:
+    """确认之后才改参数、跑求解器，并返回一行变更回执。"""
+    plan, changes, caption = await agent.apply_ops(req, req.ops)
+    return AiApplyResponse(plan=plan, changes=changes, caption=caption)
+
+
 @router.post("/replan", response_model=AiReplanResponse)
 async def post_replan(req: AiReplanRequest) -> AiReplanResponse:
     req.text = _validate_text(req.text)
@@ -57,3 +92,4 @@ async def post_explain(req: AiExplainRequest) -> AiExplainResponse:
     if not req.plan.days:
         raise HTTPException(status_code=400, detail="路书为空，先编译一份再解释")
     return await ai_service.explain(req.plan, req.question)
+

@@ -295,3 +295,32 @@ class AiExplainResponse(BaseModel):
     text: str
     debug: dict | None = None
 
+
+
+class AiTurnRequest(PlanRequest):
+    """对话一轮：先出提案，不动路书。cityPois 让后端知道这座城有哪些点。"""
+
+    text: str
+    cityPois: list[dict] = Field(default_factory=list)
+
+
+class AiTurnResponse(BaseModel):
+    kind: str = "act"  # act=要执行的动作 / clarify=需要追问 / answer=只能回答
+    reply: str = ""
+    preview: list[str] = Field(default_factory=list)
+    question: str | None = None
+    options: list[str] = Field(default_factory=list)
+    ops: dict = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class AiApplyRequest(PlanRequest):
+    """用户确认后执行提案。"""
+
+    ops: dict = Field(default_factory=dict)
+
+
+class AiApplyResponse(BaseModel):
+    plan: PlanResponse
+    changes: list[str] = Field(default_factory=list)
+    caption: str = ""

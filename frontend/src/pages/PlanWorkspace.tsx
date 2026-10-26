@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { aiParse, aiReplan } from '@/api/client'
+import { aiApply, aiTurn } from '@/api/client'
 import AddStopDialog from '@/components/AddStopDialog'
 import ChatDock, { type ChatMessage } from '@/components/ChatDock'
 import HotelPanel from '@/components/HotelPanel'
@@ -14,37 +14,15 @@ import { uid } from '@/lib/id'
 import { setSearchCity } from '@/lib/amapSearch'
 import { usePlanStale } from '@/lib/routeOrder'
 import { useTripStore } from '@/store/useTripStore'
-import type { AiReplanConstraints, TravelMode } from '@/types'
+import type { TravelMode } from '@/types'
 
 /**
  * 工作台：左（起点/搜索 + 左下角 AI 对话）｜中（地图）｜右（可互动的竖排路书）
  *
  * 关键流程（1.1）：
- *   第一句话 → 只做"解析 + 在地图上标点"，不编译；
- *   后续每句话 → 增量改参数并重新编译；
- *   底栏「一键编译路书」随时可手动编译。
+ *   每句话 → 先出提案（要改什么），用户确认后才动路书；
+ *   改动完回一行小字回执（+1 地点 / 更新 3 段交通 …）。
  */
-const DAY_WORDS: Record<string, number> = { 一: 1, 两: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7 }
-
-/** 从一句话里扒出"几天 / 什么交通方式"，第一轮就能用上，不用等到第二轮 */
-function parseHints(text: string): { days: number | null; mode: TravelMode | null } {
-  const dayMatch = text.match(/([一二两三四五六七\d])\s*(天|日)/)
-  let days: number | null = null
-  if (dayMatch) {
-    const value = DAY_WORDS[dayMatch[1]] ?? Number(dayMatch[1])
-    if (Number.isFinite(value) && value >= 1 && value <= 7) days = value
-  }
-  const modeRules: Array<[RegExp, TravelMode]> = [
-    [/地铁/, 'subway'],
-    [/打车|出租|的士/, 'taxi'],
-    [/公交|大巴/, 'transit'],
-    [/走路|步行/, 'walk'],
-    [/自驾|开车/, 'drive'],
-  ]
-  const mode = modeRules.find(([pattern]) => pattern.test(text))?.[1] ?? null
-  return { days, mode }
-}
-
 export default function PlanWorkspace() {
   const navigate = useNavigate()
   const { run, planning, buildPayload } = usePlanController()
@@ -72,6 +50,7 @@ export default function PlanWorkspace() {
   const [hotelOpen, setHotelOpen] = useState(false)
   const [cityAddOpen, setCityAddOpen] = useState(false)
   const startedRef = useRef(false)
+  const pendingOps = useRef<Record<string, Record<string, unknown>>>({})
 
   const hotel = useTripStore((s) => s.hotel)
 
@@ -81,132 +60,109 @@ export default function PlanWorkspace() {
     setMessages((prev) => [...prev, { id: uid('m'), role: 'ai', text, meta }])
   }
 
-  function applyConstraints(constraints: AiReplanConstraints, removed: string[]) {
-    for (const [key, value] of Object.entries(constraints.weights ?? {})) {
-      if (typeof value === 'number') setWeight(key as 'time' | 'convenience' | 'cost' | 'walking', value)
+  function applyOpsToStore(ops: Record<string, unknown>) {
+    const addPlaces = ops.addPlaces as
+      | Array<{ name: string; lng: number; lat: number; stayMin?: number }>
+      | undefined
+    if (addPlaces?.length) {
+      addDestinations(
+        addPlaces.map((item) => ({
+          name: item.name,
+          lng: item.lng,
+          lat: item.lat,
+          source: 'ai' as const,
+          selected: true,
+          stayMin: item.stayMin ?? 60,
+        })),
+      )
     }
-    if (constraints.dayStartTime) setOption('dayStartTime', constraints.dayStartTime)
-    if (constraints.dayEndTime) setOption('dayEndTime', constraints.dayEndTime)
-    if (typeof constraints.lunchBreakMin === 'number') setOption('lunchBreakMin', constraints.lunchBreakMin)
-    if (constraints.days) setDays(constraints.days)
-    if (constraints.mode) setMode(constraints.mode)
-    if (removed.length) {
+    const removeNames = ops.removeNames as string[] | undefined
+    if (removeNames?.length) {
       for (const dest of useTripStore.getState().destinations) {
-        if (removed.some((name) => dest.name === name || dest.name.includes(name))) {
+        if (removeNames.some((name) => dest.name === name || dest.name.includes(name) || name.includes(dest.name))) {
           updateDestination(dest.id, { selected: false })
         }
       }
     }
+    if (typeof ops.days === 'number') setDays(ops.days)
+    if (typeof ops.mode === 'string') setMode(ops.mode as TravelMode)
+    const weights = ops.weights as Record<string, number> | undefined
+    if (weights) {
+      for (const [key, value] of Object.entries(weights)) {
+        if (typeof value === 'number') setWeight(key as 'time' | 'convenience' | 'cost' | 'walking', value)
+      }
+    }
+    const times = ops.times as { dayStartTime?: string; dayEndTime?: string } | undefined
+    if (times?.dayStartTime) setOption('dayStartTime', times.dayStartTime)
+    if (times?.dayEndTime) setOption('dayEndTime', times.dayEndTime)
   }
 
+  /** 一轮对话：只出提案，等用户点确认 */
   async function handleSend(text: string) {
     setMessages((prev) => [...prev, { id: uid('m'), role: 'user', text }])
     setBusy(true)
     try {
-      const state = useTripStore.getState()
-      const hasPlaces = state.destinations.some((dest) => dest.selected)
-
-      if (!hasPlaces) {
-        // 先从句子里扒出天数 / 交通方式（"两日游" "2 天" "用地铁"），能直接用上
-        const hints = parseHints(text)
-        if (hints.days) setDays(hints.days)
-        if (hints.mode) setMode(hints.mode)
-
-        // 第一轮：解析 + 标点，不编译
-        const parsed = await aiParse(text)
-
-        if (!parsed.places.length) {
-          const wantsSuggestion = /推荐|随便|帮我|安排|规划|不知道|看着办|都行/.test(text)
-        const hotelNote = /酒店|住宿|住哪/.test(text)
-          ? ' 酒店那句我记下了——自动定位酒店要你在右侧「出发酒店 → 更换」里搜一下（或在地图上点）。'
-          : ''
-          if (wantsSuggestion && city.pois.length) {
-            const picks = city.pois.slice(0, hints.days && hints.days > 1 ? 6 : 5)
-            addDestinations(
-              picks.map((poi) => ({
-                name: poi.name,
-                lng: poi.lng,
-                lat: poi.lat,
-                source: 'import' as const,
-                selected: true,
-                stayMin: poi.stayMin,
-                openTime: poi.openTime,
-                closeTime: poi.closeTime,
-                tags: poi.tags,
-                address: poi.district,
-              })),
-            )
-            pushAi(
-              `好，你没指名地点，我先按${city.name}这几个地方给你排：` +
-                `${picks.map((poi) => poi.name).join('、')}。` +
-                (hints.days ? `按 ${hints.days} 天算。` : '') +
-                ` 直接编译出来了，想换掉哪个就说「不想去XX」。${hotelNote}`,
-              '按城市地标推荐',
-            )
-            await run()
-            return
-          }
-          const examples = city.pois
-            .slice(0, 3)
-            .map((poi) => poi.name)
-            .join('、')
-          pushAi(
-            `这句话里我没认出具体地点。可以说地名（比如${examples || '外滩、豫园'}），` +
-              `或者直接说「推荐一条两日游」，我按城市地标先给你排一版。${hotelNote}`,
-          )
-          return
-        }
-        addDestinations(
-          parsed.places.map((place) => ({
-            name: place.name,
-            lng: place.lng,
-            lat: place.lat,
-            source: 'ai' as const,
-            selected: true,
-            stayMin: place.stayMin,
-            openTime: place.openTime,
-            closeTime: place.closeTime,
-            tags: place.tags,
-            address: place.address ?? undefined,
-          })),
-        )
-        const names = parsed.places.map((place) => place.name).join('、')
-        pushAi(
-          `先把这 ${parsed.places.length} 个地点标到地图上了：${names}。\n` +
-            '再确认两件事，我就能编译：玩几天？交通偏公交、地铁还是打车？',
-          parsed.source === 'llm' ? '大模型解析' : '规则解析',
-        )
-        if (parsed.unresolved.length) {
-          pushAi(`这几个没认出来：${parsed.unresolved.join('、')}（可以换个说法再试）。`)
-        }
-        // 大模型失败时把原因摊开说，别让人以为"AI 就是这样"
-        if (parsed.warnings?.length) {
-          pushAi(`⚠️ ${parsed.warnings[0]}`, '降级提示')
-        } else if (parsed.source !== 'llm') {
-          pushAi('当前用的是内置规则解析（没检测到可用的大模型 Key）。到「个人」页填 Key 后点「测试 AI 连接」。', '规则模式')
-        }
-        return
-      }
-
-      // 后续轮次：增量改参数 + 重新编译
-      const result = await aiReplan({ ...buildPayload(), text })
-      applyConstraints(result.constraints as AiReplanConstraints, result.removed)
-      // 用后端算好的路书覆盖，并把指纹对齐
-      setPlan(result.plan)
-      // 优先用后端生成的人话回复（含取舍理由）；没有才退回变更清单
-      const stops = result.plan.days.reduce((sum, day) => sum + day.stops.length, 0)
-      const applied = result.applied.length ? result.applied.join('、') : '没有可执行的调整'
-      const replyText =
-        result.reply?.trim() ||
-        `${applied}。已重新编译：${result.plan.days.length} 天 / ${stops} 站。`
-      pushAi(replyText, result.source === 'llm' ? '大模型 · 已重新编译' : '规则解析 · 已重新编译')
+      const res = await aiTurn({
+        ...buildPayload(),
+        text,
+        cityPois: city.pois as unknown as Array<Record<string, unknown>>,
+      })
+      const id = uid('m')
+      if (res.kind === 'act') pendingOps.current[id] = res.ops
+      setMessages((prev) => [
+        ...prev,
+        {
+          id,
+          role: 'ai',
+          text: res.question ? `${res.reply}\n${res.question}` : res.reply,
+          preview: res.preview,
+          pending: res.kind === 'act',
+          options: res.options,
+          meta: res.warnings?.length ? `我没有这项数据：${res.warnings.join('、')}` : undefined,
+        },
+      ])
     } catch (err) {
       const message = err instanceof Error ? err.message : 'AI 调用失败'
+      showToast('error', message)
+      pushAi(`❌ ${message}（可以再说一次，或者直接手动改）`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 确认后才真正改参数 + 编译 */
+  async function handleConfirm(id: string) {
+    const ops = pendingOps.current[id]
+    if (!ops) return
+    setBusy(true)
+    try {
+      const res = await aiApply({ ...buildPayload(), ops })
+      applyOpsToStore(ops)
+      setPlan(res.plan)
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === id
+            ? { ...message, pending: false, resolved: 'confirmed' as const, caption: res.caption }
+            : message,
+        ),
+      )
+      delete pendingOps.current[id]
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '执行失败'
       showToast('error', message)
       pushAi(`❌ ${message}`)
     } finally {
       setBusy(false)
     }
+  }
+
+  function handleCancel(id: string) {
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.id === id ? { ...message, pending: false, resolved: 'cancelled' as const } : message,
+      ),
+    )
+    delete pendingOps.current[id]
   }
 
   // 从首页带过来的第一句话，只跑一次
@@ -283,6 +239,8 @@ export default function PlanWorkspace() {
             messages={messages}
             busy={busy}
             onSend={(text) => void handleSend(text)}
+            onConfirm={(id) => void handleConfirm(id)}
+            onCancel={handleCancel}
             examples={
               messages.length <= 1
                 ? ['2 天，用地铁', '少走路，6 点前回酒店', '别排太满']
@@ -365,6 +323,10 @@ export default function PlanWorkspace() {
     </div>
   )
 }
+
+
+
+
 
 
 

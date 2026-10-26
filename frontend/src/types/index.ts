@@ -374,3 +374,20 @@ export interface ShareCodeResponse {
 }
 
 
+
+/** 1.9 对话提案（先确认再动手） */
+export interface AiTurnResponse {
+  kind: 'act' | 'clarify' | 'answer'
+  reply: string
+  preview: string[]
+  question?: string | null
+  options: string[]
+  ops: Record<string, unknown>
+  warnings: string[]
+}
+
+export interface AiApplyResponse {
+  plan: PlanResponse
+  changes: string[]
+  caption: string
+}
