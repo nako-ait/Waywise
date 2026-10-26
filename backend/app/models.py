@@ -310,10 +310,13 @@ class AiTurnRequest(PlanRequest):
 
     text: str
     cityPois: list[dict] = Field(default_factory=list)
+    cityName: str = "上海"
+    history: list[dict] = Field(default_factory=list)
 
 
 class AiTurnResponse(BaseModel):
     kind: str = "act"  # act=要执行的动作 / clarify=需要追问 / answer=只能回答
+    source: str = "rules"  # llm / rules
     reply: str = ""
     preview: list[str] = Field(default_factory=list)
     question: str | None = None
@@ -332,3 +335,5 @@ class AiApplyResponse(BaseModel):
     plan: PlanResponse
     changes: list[str] = Field(default_factory=list)
     caption: str = ""
+
+

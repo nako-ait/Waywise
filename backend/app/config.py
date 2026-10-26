@@ -77,3 +77,23 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+
+def _sanitize_proxy_env() -> None:
+    """清理 NO_PROXY 里的 [::1] 这类写法。
+
+    httpx 会把 NO_PROXY 的每一项当成 URL 解析，`[::1]` 会被解析成非法端口（':1]'），
+    直接抛 InvalidURL —— 结果是**后端所有对外 HTTP 调用（LLM / 高德）在建客户端时就崩**，
+    表现为"大模型永远没生效、永远走规则"。
+    """
+    import os
+
+    for name in ("NO_PROXY", "no_proxy"):
+        raw = os.environ.get(name)
+        if not raw:
+            continue
+        parts = [item.strip() for item in raw.split(",") if item.strip() and "[" not in item]
+        os.environ[name] = ",".join(parts)
+
+
+_sanitize_proxy_env()

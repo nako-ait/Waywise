@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { aiApply, aiTurn } from '@/api/client'
 import AddStopDialog from '@/components/AddStopDialog'
@@ -106,6 +106,9 @@ export default function PlanWorkspace() {
         ...buildPayload(),
         text,
         cityPois: city.pois as unknown as Array<Record<string, unknown>>,
+        cityName: city.name,
+        // 最近 6 轮，解决"刚才那个"这类指代
+        history: messages.slice(-6).map((m) => ({ role: m.role, text: m.text })),
       })
       const id = uid('m')
       if (res.kind === 'act') pendingOps.current[id] = res.ops
@@ -323,6 +326,7 @@ export default function PlanWorkspace() {
     </div>
   )
 }
+
 
 
 

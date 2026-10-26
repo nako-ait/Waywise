@@ -200,3 +200,118 @@ def build_replan_user_prompt(text: str, plan_digest: str) -> str:
 def build_explain_user_prompt(plan_json: str, question: str | None = None) -> str:
     extra = f"\n用户额外的问题：{question.strip()}" if question else ""
     return f"路书 JSON：\n{plan_json}\n{extra}\n请用中文口语解释这份安排。"
+
+
+# --------------------------------------------------------------------------- #
+# 1.9：对话提案工具 —— 让模型真正参与"这一句话要改什么"
+# --------------------------------------------------------------------------- #
+TURN_TOOL: dict = {
+    "name": "propose_changes",
+    "description": (
+        "把用户这一句话翻译成对当前路书的修改提案。"
+        "只填需要改变的字段；做不到的事用 boundary 说明；缺关键信息用 clarify 反问。"
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "reply": {
+                "type": "string",
+                "description": "给用户看的一句话，最多 2 句、50 字以内，先说改什么，再说为什么",
+            },
+            "addPlaces": {
+                "type": "array",
+                "description": "要加入的地点（只写名字，坐标后端查）",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "stayMin": {"type": "integer"},
+                    },
+                    "required": ["name"],
+                    "additionalProperties": False,
+                },
+            },
+            "removeNames": {
+                "type": "array",
+                "description": "要删掉的地点名字",
+                "items": {"type": "string"},
+            },
+            "days": {"type": "integer", "description": "行程天数 1~7"},
+            "mode": {
+                "type": "string",
+                "enum": ["walk", "transit", "subway", "taxi", "drive"],
+                "description": "整体交通方式；用户说“地铁或打车”但没定，就别填，用 clarify 问一句",
+            },
+            "weights": {
+                "type": "object",
+                "description": "偏好权重 0~1，只填要变的；越大越在意",
+                "properties": {
+                    "time": {"type": "number"},
+                    "convenience": {"type": "number"},
+                    "cost": {"type": "number"},
+                    "walking": {"type": "number"},
+                },
+                "additionalProperties": False,
+            },
+            "dayStartTime": {"type": "string", "description": "出发时间 HH:mm"},
+            "dayEndTime": {"type": "string", "description": "收工时间 HH:mm"},
+            "budgetCap": {
+                "type": "number",
+                "description": "总费用上限（元）。用户说“预算 150”“150 以内”就填 150",
+            },
+            "transitCapMin": {
+                "type": "number",
+                "description": "路上总时间上限（分钟）。用户说“交通时间 5 小时以内”就填 300",
+            },
+            "clarify": {
+                "type": "string",
+                "description": "缺关键信息时的一句话反问，例如“想玩几天？”",
+            },
+            "boundary": {
+                "type": "string",
+                "description": (
+                    "用户要的是我们没有的数据（酒店星级/实时房价、天气、实时人流、门票人均）时，"
+                    "说明没有这项数据并给出替代动作"
+                ),
+            },
+        },
+        "required": ["reply"],
+        "additionalProperties": False,
+    },
+}
+
+TOOL_REGISTRY["propose_changes"] = TURN_TOOL
+
+TURN_SYSTEM_PROMPT = """你是「路书编译师」的行程助手，负责把用户的一句话变成对当前路书的修改提案。
+
+硬规则：
+1. 你只能输出 propose_changes 工具调用，不要输出解释性文字。
+2. reply 最多 2 句、50 字以内：先说改什么，再说为什么（或下一步）。不要罗列参数名。
+3. **你没有的数据**：酒店星级/房价、天气、实时人流、门票与人均消费。用户问这些时，
+   填 boundary（说明没有并给替代），不要编造。
+4. 用户同时给了多个交通方式（如“地铁或打车”）但没有明确取舍时，不要猜，用 clarify 反问一句。
+5. 用户给的数字要落成约束：预算 → budgetCap，路上时间 → transitCapMin（小时×60）。
+6. 不要输出经纬度、不要输出不存在的地点名；不确定的地点名就别加，用 clarify 问。
+7. 如果这句话不需要改路书（只是提问/闲聊），只填 reply，其它留空。
+"""
+
+
+def build_turn_user_prompt(
+    text: str,
+    *,
+    city: str,
+    digest: str,
+    candidates: list[str],
+    history: list[dict] | None = None,
+) -> str:
+    lines: list[str] = [f"城市：{city}", f"当前路书：{digest}"]
+    if candidates:
+        lines.append("可用的地点（只能从这里选）：" + "、".join(candidates[:40]))
+    if history:
+        lines.append("最近对话：")
+        for item in history[-6:]:
+            role = "用户" if item.get("role") == "user" else "助手"
+            lines.append(f"  {role}：{item.get('text', '')}")
+    lines.append(f"用户这句话：{text.strip()}")
+    lines.append("请调用 propose_changes 返回提案。")
+    return "\n".join(lines)

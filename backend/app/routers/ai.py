@@ -1,4 +1,4 @@
-﻿"""AI 能力接口（模块 4）。
+"""AI 能力接口（模块 4）。
 
 GET  /api/ai/health    探活：Key 配了没、能不能真的调通
 POST /api/ai/parse     自然语言 → 目的地列表（Function Calling → 地理编码 → 自动标点）
@@ -52,9 +52,9 @@ async def post_parse(req: AiParseRequest) -> AiParseResponse:
 
 @router.post("/turn", response_model=AiTurnResponse)
 async def post_turn(req: AiTurnRequest) -> AiTurnResponse:
-    """先出提案（不执行）：告诉用户准备改什么，等确认。"""
+    """先出提案（不执行）：告诉用户准备改什么，等确认。有 Key 时由模型出提案。"""
     text = _validate_text(req.text)
-    proposal = agent.build_proposal(
+    proposal, source = await agent.propose_with_llm(
         text,
         used_names={d.name for d in req.destinations},
         city_pois=req.cityPois,
@@ -62,9 +62,12 @@ async def post_turn(req: AiTurnRequest) -> AiTurnResponse:
         mode=req.mode,
         weights=req.weights.model_dump(),
         has_places=any(d.selected for d in req.destinations),
+        city_name=req.cityName,
+        history=req.history,
     )
     return AiTurnResponse(
         kind=proposal.kind,
+        source=source,
         reply=proposal.reply,
         preview=proposal.preview,
         question=proposal.question,

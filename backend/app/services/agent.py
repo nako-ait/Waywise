@@ -19,7 +19,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..models import Destination, PlanResponse, TripLimits
-from . import nlp_rules
+from . import llm, nlp_rules
+from .ai_schemas import TURN_SYSTEM_PROMPT, TURN_TOOL, build_turn_user_prompt
 from .planner import create_plan
 from .poi_store import load_pois, search_pois
 
@@ -339,7 +340,26 @@ async def apply_ops(base_req: Any, ops: dict[str, Any]) -> tuple[PlanResponse, l
     )
     plan = await create_plan(new_req)
 
+    # 约束没满足时，自动换一种交通方式再试一次（预算超 → 更省的方式；时间超 → 更快的方式）
+    changes_extra: str | None = None
+    limit_violations = ((plan.solver or {}).get("limits") or {}).get("violations") or []
+    if limit_violations:
+        alt = None
+        if any("费用" in v for v in limit_violations) and mode not in {"subway", "transit"}:
+            alt = "subway"
+        elif any("分钟" in v for v in limit_violations) and mode != "taxi":
+            alt = "taxi"
+        if alt:
+            retry_req = new_req.model_copy(update={"mode": alt, "legModes": {}})
+            retry_plan = await create_plan(retry_req)
+            retry_violations = ((retry_plan.solver or {}).get("limits") or {}).get("violations") or []
+            if len(retry_violations) < len(limit_violations):
+                plan = retry_plan
+                changes_extra = f"自动改成{MODE_LABELS.get(alt, alt)}以贴近上限"
+
     changes: list[str] = []
+    if changes_extra:
+        changes.append(changes_extra)
     if added_names:
         changes.append(f"＋{len(added_names)} 地点")
     if removed_real:
@@ -366,3 +386,151 @@ async def apply_ops(base_req: Any, ops: dict[str, Any]) -> tuple[PlanResponse, l
 
 
 
+
+
+
+# --------------------------------------------------------------------------- #
+# 1.10：让模型真的参与提案（有 Key 走模型，没 Key / 失败回落规则）
+# --------------------------------------------------------------------------- #
+def _ops_from_arguments(args: dict, index: dict[str, dict]) -> dict[str, Any]:
+    ops: dict[str, Any] = {}
+
+    adds: list[dict] = []
+    for item in args.get("addPlaces") or []:
+        name = str((item or {}).get("name") or "").strip()
+        info = index.get(name)
+        if not info or info["name"] in adds:
+            continue
+        adds.append(
+            {
+                "name": info["name"],
+                "lng": info["lng"],
+                "lat": info["lat"],
+                "stayMin": int((item or {}).get("stayMin") or info.get("stayMin") or 60),
+            }
+        )
+    if adds:
+        ops["addPlaces"] = adds
+
+    removes = [str(n).strip() for n in (args.get("removeNames") or []) if str(n).strip()]
+    if removes:
+        ops["removeNames"] = removes
+
+    if isinstance(args.get("days"), int) and 1 <= args["days"] <= 7:
+        ops["days"] = args["days"]
+    if args.get("mode") in MODE_LABELS:
+        ops["mode"] = args["mode"]
+    weights = {k: float(v) for k, v in (args.get("weights") or {}).items() if k in WEIGHT_LABELS}
+    if weights:
+        ops["weights"] = weights
+
+    times: dict[str, Any] = {}
+    for key in ("dayStartTime", "dayEndTime"):
+        value = args.get(key)
+        if isinstance(value, str) and re.match(r"^\d{1,2}:\d{2}$", value):
+            times[key] = value
+    if times:
+        ops["times"] = times
+
+    limits: dict[str, float] = {}
+    if isinstance(args.get("budgetCap"), (int, float)) and args["budgetCap"] > 0:
+        limits["budgetCap"] = float(args["budgetCap"])
+    if isinstance(args.get("transitCapMin"), (int, float)) and args["transitCapMin"] > 0:
+        limits["transitCapMin"] = float(args["transitCapMin"])
+    if limits:
+        ops["limits"] = limits
+    return ops
+
+
+def _preview_from_ops(ops: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for item in ops.get("addPlaces") or []:
+        lines.append(f"加入 {item['name']}")
+    if ops.get("removeNames"):
+        lines.append("去掉 " + "、".join(ops["removeNames"]))
+    if ops.get("mode"):
+        lines.append(f"全程改为{MODE_LABELS[ops['mode']]}")
+    if ops.get("weights"):
+        lines.append("更看重" + "、".join(WEIGHT_LABELS[k] for k in ops["weights"]))
+    if ops.get("days"):
+        lines.append(f"天数改成 {ops['days']} 天")
+    times = ops.get("times") or {}
+    if times:
+        if times.get("dayStartTime"):
+            lines.append(f"{times['dayStartTime']} 出发")
+        if times.get("dayEndTime"):
+            lines.append(f"{times['dayEndTime']} 收工")
+    limits = ops.get("limits") or {}
+    if limits.get("budgetCap"):
+        lines.append(f"预算上限 ¥{limits['budgetCap']:.0f}")
+    if limits.get("transitCapMin"):
+        minutes = limits["transitCapMin"]
+        lines.append(f"路上时间上限 {minutes / 60:g} 小时" if minutes >= 60 else f"路上时间上限 {minutes:.0f} 分钟")
+    return lines
+
+
+async def propose_with_llm(
+    text: str,
+    *,
+    used_names: set[str],
+    city_pois: list[dict],
+    days: int,
+    mode: str,
+    weights: dict[str, float],
+    has_places: bool,
+    city_name: str = "上海",
+    history: list[dict] | None = None,
+) -> tuple[Proposal, str]:
+    """优先让模型出提案；模型不可用/返回异常时回落到规则。"""
+    index = _poi_index(city_pois)
+    digest = (
+        f"{days} 天 · 整体方式{MODE_LABELS.get(mode, mode)} · "
+        f"{len(used_names)} 个已选地点" + (f"（{'、'.join(sorted(used_names)[:8])}）" if used_names else "")
+    )
+    result = await llm.call_tool(
+        TURN_TOOL,
+        TURN_SYSTEM_PROMPT,
+        build_turn_user_prompt(
+            text,
+            city=city_name,
+            digest=digest,
+            candidates=sorted(index.keys()),
+            history=history,
+        ),
+        timeout=25.0,
+        temperature=0.1,
+    )
+    if result.ok:
+        args = result.arguments or {}
+        reply = str(args.get("reply") or "").strip()
+        ops = _ops_from_arguments(args, index)
+        boundary = (args.get("boundary") or "").strip()
+        clarify = (args.get("clarify") or "").strip()
+
+        if boundary:
+            return Proposal(kind="answer", reply=_short(boundary), ops=ops, warnings=["模型：无此数据"]), "llm"
+        if clarify:
+            return (
+                Proposal(kind="clarify", reply=_short(reply or "还需要确认一下。"), question=clarify, ops=ops),
+                "llm",
+            )
+        if ops:
+            return (
+                Proposal(kind="act", reply=_short(reply or "收到，确认后我再改动。"), preview=_preview_from_ops(ops), ops=ops),
+                "llm",
+            )
+        if reply:
+            return Proposal(kind="answer", reply=_short(reply), ops={}), "llm"
+
+    return (
+        build_proposal(
+            text,
+            used_names=used_names,
+            city_pois=city_pois,
+            days=days,
+            mode=mode,
+            weights=weights,
+            has_places=has_places,
+        ),
+        "rules",
+    )

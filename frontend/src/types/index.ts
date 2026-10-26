@@ -391,3 +391,4 @@ export interface AiApplyResponse {
   changes: string[]
   caption: string
 }
+

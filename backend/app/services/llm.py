@@ -101,7 +101,11 @@ async def _chat(payload: dict, timeout: float) -> tuple[dict, int]:
         raise LlmError("未配置 LLM API Key")
     headers = {"Authorization": f"Bearer {cfg.api_key}", "Content-Type": "application/json"}
     started = time.perf_counter()
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    try:
+        client = httpx.AsyncClient(timeout=timeout)
+    except Exception as exc:  # 代理配置异常（如 NO_PROXY 里有 [::1]）：降级而不是 500
+        raise LlmError(f"HTTP 客户端初始化失败：{type(exc).__name__}: {exc}") from exc
+    async with client:
         resp = await client.post(f"{cfg.base_url}/chat/completions", json=payload, headers=headers)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     if resp.status_code >= 400:
@@ -228,3 +232,4 @@ async def probe() -> dict:
         "error": result.error,
         "debug": result.debug,
     }
+

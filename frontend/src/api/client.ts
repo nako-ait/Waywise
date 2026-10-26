@@ -174,7 +174,12 @@ export { API_BASE }
 
 /** 1.9：一轮对话只出提案，不动路书 */
 export function aiTurn(
-  payload: PlanRequest & { text: string; cityPois: Array<Record<string, unknown>> },
+  payload: PlanRequest & {
+    text: string
+    cityPois: Array<Record<string, unknown>>
+    cityName: string
+    history: Array<{ role: string; text: string }>
+  },
 ): Promise<AiTurnResponse> {
   return request<AiTurnResponse>('/api/ai/turn', { method: 'POST', body: JSON.stringify(payload) }, 60000)
 }
@@ -185,4 +190,5 @@ export function aiApply(
 ): Promise<AiApplyResponse> {
   return request<AiApplyResponse>('/api/ai/apply', { method: 'POST', body: JSON.stringify(payload) }, 90000)
 }
+
 
