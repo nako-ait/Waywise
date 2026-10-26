@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 后端 API 客户端。
  * 统一处理：baseURL、超时、非 2xx 报错文案（把后端的 detail 透出来，方便现场排障）。
  */
@@ -19,7 +19,10 @@ import type {
   TravelMode,
 } from '@/types'
 
-const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8000').replace(/\/+$/, '')
+// 默认走「同源 /api」：Vite 开发服务器会把 /api 代理到 127.0.0.1:8000。
+// 这样浏览器不再跨域，也不会被系统代理 / CORS 影响（这是之前"连不上后端"的根因）。
+// 需要直连时，在 frontend/.env.local 里设 VITE_API_BASE=http://127.0.0.1:8000
+const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/+$/, '')
 
 export class ApiError extends Error {
   status: number

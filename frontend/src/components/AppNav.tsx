@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { fetchHealth } from '@/api/client'
 import ShareActions from './ShareActions'
 import { useTripStore } from '@/store/useTripStore'
 
@@ -8,10 +10,22 @@ const NAV = [
   { to: '/me', label: '个人' },
 ]
 
-/** 全局大导航：所有页面常驻（首页 / 工作台 / 个人），右侧放分享与导入 */
+/** 全局大导航：所有页面常驻（首页 / 工作台 / 个人），右侧放后端状态、分享与导入 */
 export default function AppNav() {
   const location = useLocation()
   const profile = useTripStore((s) => s.profile)
+  const [health, setHealth] = useState<'checking' | 'ok' | 'down'>('checking')
+
+  function check() {
+    setHealth('checking')
+    fetchHealth()
+      .then((info) => setHealth(info.status === 'ok' ? 'ok' : 'down'))
+      .catch(() => setHealth('down'))
+  }
+
+  useEffect(() => {
+    check()
+  }, [])
 
   const isActive = (to: string) =>
     to === '/' ? location.pathname === '/' : location.pathname.startsWith(to)
@@ -40,6 +54,30 @@ export default function AppNav() {
       </nav>
 
       <div className="ml-auto flex items-center gap-2">
+        <button
+          onClick={check}
+          title={
+            health === 'ok'
+              ? '后端正常（点一下重新检测）'
+              : health === 'checking'
+                ? '正在检测后端…'
+                : '连不上后端：确认 backend 已在 8000 端口启动（点一下重试）'
+          }
+          className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] ${
+            health === 'ok'
+              ? 'text-emerald-600 hover:bg-emerald-50'
+              : health === 'checking'
+                ? 'text-slate-400'
+                : 'bg-red-50 text-red-600 hover:bg-red-100'
+          }`}
+        >
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              health === 'ok' ? 'bg-emerald-500' : health === 'checking' ? 'bg-slate-300' : 'bg-red-500'
+            }`}
+          />
+          {health === 'ok' ? '后端正常' : health === 'checking' ? '检测中' : '后端未连接'}
+        </button>
         <ShareActions />
         <Link
           to="/me"
