@@ -28,12 +28,24 @@ from .poi_store import load_pois, search_pois
 WEIGHT_LABELS = {"time": "赶时间", "convenience": "少换乘", "cost": "省钱", "walking": "少走路"}
 MODE_LABELS = {"walk": "步行", "transit": "公交", "subway": "地铁", "taxi": "打车", "drive": "驾车"}
 
+# 注意：这里匹配的是「用户在问酒店的属性」，不是「句子里出现了酒店两个字」。
+# 「6 点前回酒店」只是行程描述，不该被当成"问房价"（v1.11 的真 bug）。
+HOTEL_ASK = re.compile(
+    r"(?:酒店|住宿|民宿|宾馆)[^，。；]{0,12}(?:推荐|哪家|哪个|哪里|星级|几星|价格|房价|多少钱|贵|便宜|订|选|住哪|怎么样|好不好)"
+    r"|(?:酒店|住宿|民宿|宾馆)[^，。；]{0,6}(?:定在|订在|住在|设在|安排在)"
+    r"|(?:推荐|哪家|哪家好|星级|几星|价格|房价|多少钱|贵|便宜|订房|选酒店)[^，。；]{0,12}(?:酒店|住宿|民宿|宾馆)"
+)
+HOTEL_MESSAGE = (
+    "我这边没有酒店的星级和实时房价，只有地点本身。把酒店名或地址告诉我，我设成起点；"
+    "或者你在右侧「出发酒店 → 更换」里搜一下。"
+)
+
 # 我们没有的数据源：命中就老实说，并给替代方案
 BOUNDARIES: list[tuple[re.Pattern[str], str, str]] = [
     (
-        re.compile(r"酒店|住宿|民宿|宾馆"),
+        HOTEL_ASK,
         "酒店",
-        "我这边没有酒店的星级和实时房价，只有地点本身。把酒店名或地址告诉我，我设成起点；或者你在右侧「出发酒店 → 更换」里搜一下。",
+        HOTEL_MESSAGE,
     ),
     (
         re.compile(r"天气|下雨|下雨天|气温|冷不冷"),
@@ -562,5 +574,7 @@ def proposal_from_llm_args(args: dict, *, index: dict[str, dict], used_names: se
     if reply:
         return Proposal(kind="answer", reply=_short(reply), ops={})
     return None
+
+
 
 

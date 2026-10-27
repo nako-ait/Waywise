@@ -1,4 +1,4 @@
-﻿"""对话状态机（LangGraph）：understand → propose → guard。
+"""对话状态机（LangGraph）：understand → propose → guard。
 
 为什么要有这一层：
   · understand：把"这句话想改什么"交给模型（没 Key / 失败就回落规则）；
@@ -24,13 +24,9 @@ try:  # 可选依赖：装了就用图跑，没装就顺序跑
 except Exception:  # pragma: no cover - 依赖缺失时走顺序执行
     HAS_LANGGRAPH = False
 
-# 没有数据源的领域：命中就把回复换成"如实说明"
-NO_DATA_RULES: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"酒店|住宿|民宿|宾馆"), "我这边没有酒店的星级和实时房价，只有地点本身。把酒店名或地址告诉我，我设成起点；或者你在右侧「出发酒店 → 更换」里搜一下。"),
-    (re.compile(r"天气|下雨|气温|冷不冷|热不热"), "我没有实时天气数据。能帮你的是把室外点挪到上午，或者当天改成室内为主。"),
-    (re.compile(r"人多|排队|拥挤|客流"), "我没有实时人流数据。能帮你的是把热门点排到刚开门的时段，或换一个同类地点。"),
-    (re.compile(r"门票|票价|人均|多少钱一个人"), "门票和人均消费我没有可靠来源，只能按距离和停留时长帮你排。"),
-]
+# 没有数据源的领域：命中就把回复换成「如实说明」。
+# 规则统一放在 agent.BOUNDARIES 里（同一套正则），这里只负责"拦下来"。
+NO_DATA_RULES = [(pattern, message) for pattern, _label, message in agent.BOUNDARIES]
 
 
 class TurnState(TypedDict, total=False):
