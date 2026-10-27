@@ -66,6 +66,7 @@ def _allowed_numbers(ctx: dict, proposal: agent.Proposal, evidence: list[dict]) 
     for value in ((proposal.ops or {}).get("limits") or {}).values():
         if isinstance(value, (int, float)):
             allowed.add(f"{float(value):.0f}")
+            allowed.add(f"{float(value):g}")
 
     for item in evidence:
         result = item.get("result") or {}
@@ -73,6 +74,7 @@ def _allowed_numbers(ctx: dict, proposal: agent.Proposal, evidence: list[dict]) 
             value = result.get(key)
             if isinstance(value, (int, float)):
                 allowed.add(f"{float(value):.0f}")
+                allowed.add(f"{float(value):g}")
 
     for value in ((proposal.ops or {}).get("weights") or {}).values():
         if isinstance(value, (int, float)):
@@ -142,3 +144,4 @@ async def run_turn(text: str, ctx: dict[str, Any]) -> tuple[agent.Proposal, str]
 
 
 __all__ = ["HAS_LANGGRAPH", "run_turn", "verify_proposal"]
+
