@@ -62,11 +62,16 @@ async def post_turn(req: AiTurnRequest) -> AiTurnResponse:
             "days": req.days,
             "mode": req.mode,
             "weights": req.weights.model_dump(),
+            "options": req.options.model_dump(),
+            "hotel": req.hotel,
             "has_places": any(d.selected for d in req.destinations),
             "city_name": req.cityName,
             "history": req.history,
         },
     )
+    warnings = list(proposal.warnings)
+    if source == 'rules':
+        warnings.append('未使用大模型：无 Key 或调用失败，已用规则兜底')
     return AiTurnResponse(
         kind=proposal.kind,
         source=source,
@@ -75,7 +80,7 @@ async def post_turn(req: AiTurnRequest) -> AiTurnResponse:
         question=proposal.question,
         options=proposal.options,
         ops=proposal.ops,
-        warnings=proposal.warnings,
+        warnings=warnings,
     )
 
 
@@ -97,6 +102,8 @@ async def post_explain(req: AiExplainRequest) -> AiExplainResponse:
     if not req.plan.days:
         raise HTTPException(status_code=400, detail="路书为空，先编译一份再解释")
     return await ai_service.explain(req.plan, req.question)
+
+
 
 
 

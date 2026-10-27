@@ -378,6 +378,8 @@ export interface ShareCodeResponse {
 /** 1.9 对话提案（先确认再动手） */
 export interface AiTurnResponse {
   kind: 'act' | 'clarify' | 'answer'
+  /** llm=模型出的提案；rules=规则兜底 */
+  source: 'llm' | 'rules'
   reply: string
   preview: string[]
   question?: string | null
@@ -391,4 +393,5 @@ export interface AiApplyResponse {
   changes: string[]
   caption: string
 }
+
 

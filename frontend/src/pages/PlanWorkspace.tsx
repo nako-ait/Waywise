@@ -121,7 +121,10 @@ export default function PlanWorkspace() {
           preview: res.preview,
           pending: res.kind === 'act',
           options: res.options,
-          meta: res.warnings?.length ? `我没有这项数据：${res.warnings.join('、')}` : undefined,
+          meta:
+            res.source === 'llm'
+              ? `大模型提案${res.warnings?.length ? ' · ' + res.warnings.join('、') : ''}`
+              : res.warnings?.[0] ?? '规则兜底（模型未参与）',
         },
       ])
     } catch (err) {
@@ -326,6 +329,7 @@ export default function PlanWorkspace() {
     </div>
   )
 }
+
 
 
 

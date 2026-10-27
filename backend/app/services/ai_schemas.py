@@ -315,3 +315,61 @@ def build_turn_user_prompt(
     lines.append(f"用户这句话：{text.strip()}")
     lines.append("请调用 propose_changes 返回提案。")
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# 1.12：Agent 工具集 —— 模型可以先查、先算，再给提案
+# --------------------------------------------------------------------------- #
+SEARCH_TOOL: dict = {
+    "name": "search_pois",
+    "description": "在当前城市的地点库里按关键词搜索，返回可用的地点名（含停留时长）。想加地点前先查一下，不要凭空写地名。",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "keyword": {"type": "string", "description": "关键词，如 博物馆 / 咖啡 / 外滩"},
+            "limit": {"type": "integer", "description": "最多返回几条，默认 6"},
+        },
+        "required": ["keyword"],
+        "additionalProperties": False,
+    },
+}
+
+PREVIEW_TOOL: dict = {
+    "name": "preview_plan",
+    "description": (
+        "用当前起点和给定地点试算一版路书，返回总费用、路上时间、每站时间与是否超出预算/时长上限。"
+        "用户提到预算、时间上限或“够不够”时，先用它算一遍再回答。"
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "destinations": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "地点名列表（必须来自 search_pois 或已有列表）",
+            },
+            "days": {"type": "integer"},
+            "mode": {"type": "string", "enum": ["walk", "transit", "subway", "taxi", "drive"]},
+            "budgetCap": {"type": "number"},
+            "transitCapMin": {"type": "number"},
+        },
+        "required": ["destinations"],
+        "additionalProperties": False,
+    },
+}
+
+TOOL_REGISTRY["search_pois"] = SEARCH_TOOL
+TOOL_REGISTRY["preview_plan"] = PREVIEW_TOOL
+
+AGENT_SYSTEM_PROMPT = """你是「路书编译师」的行程 agent。你的任务是理解用户这一句话，并用工具把它变成可执行的路书改动。
+
+工作方式：
+1. 需要地点时先调 search_pois，不要凭记忆写地名（也不要写经纬度）。
+2. 用户提到预算、路上时间、够不够、要不要打车时，先调 preview_plan 算一遍，用真实数字说话。
+3. 信息够了下结论：调 propose_changes 给出 ops（加/删地点、天数、方式、权重、时间、预算/时长上限）。
+4. 缺关键信息（几天？哪个城市？）用 clarify 反问一句，一次只问一个。
+5. 我们没有的数据：酒店星级/实时房价、天气、实时人流、门票与人均消费。遇到这些用 boundary 说明，并给一个能做的替代，不要编数字。
+6. 用户同时给多个交通方式但没定取舍时，用 preview_plan 各算一遍，再推荐更合适的一个（说明理由）。
+
+回复规范：reply 最多 2 句、50 字以内；不要罗列参数名；不要 markdown。
+"""

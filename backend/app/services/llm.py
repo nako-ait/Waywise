@@ -233,3 +233,45 @@ async def probe() -> dict:
         "debug": result.debug,
     }
 
+
+
+async def chat_tools(
+    messages: list[dict],
+    tools: list[dict],
+    *,
+    force: str | None = None,
+    timeout: float = 30.0,
+    temperature: float = 0.2,
+) -> dict:
+    """通用 function calling：可以一次暴露多个工具，由模型自己挑。
+
+    返回 {"content": str, "tool_calls": [{"name", "arguments"}], "elapsedMs": int}
+    """
+    cfg = current_config()
+    if cfg is None:
+        raise LlmError("未配置 LLM API Key")
+    payload: dict = {
+        "model": cfg.model,
+        "messages": messages,
+        "tools": [{"type": "function", "function": tool} for tool in tools],
+        "tool_choice": (
+            {"type": "function", "function": {"name": force}} if force else "auto"
+        ),
+        "temperature": temperature,
+        "stream": False,
+    }
+    data, elapsed_ms = await _chat(payload, timeout)
+    try:
+        message = data["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise LlmError(f"模型返回结构异常：{exc}") from exc
+
+    calls: list[dict] = []
+    for call in message.get("tool_calls") or []:
+        fn = call.get("function") or {}
+        try:
+            args = json.loads(fn.get("arguments") or "{}")
+        except json.JSONDecodeError:
+            args = {}
+        calls.append({"name": fn.get("name", ""), "arguments": args})
+    return {"content": message.get("content") or "", "tool_calls": calls, "elapsedMs": elapsed_ms}
