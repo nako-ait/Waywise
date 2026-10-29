@@ -95,14 +95,14 @@ class Proposal:
 def _poi_index(city_pois: list[dict]) -> dict[str, dict]:
     index: dict[str, dict] = {}
     for poi in load_pois():
-        index[poi.name] = {"name": poi.name, "lng": poi.lng, "lat": poi.lat, "stayMin": poi.stayMin}
+        index[poi.name] = poi.model_dump()
     for poi in city_pois or []:
         name = str(poi.get("name") or "").strip()
         if not name:
             continue
         index.setdefault(
             name,
-            {"name": name, "lng": poi.get("lng"), "lat": poi.get("lat"), "stayMin": poi.get("stayMin") or 60},
+            {**poi, "name": name, "stayMin": poi.get("stayMin") or 60},
         )
     return index
 
@@ -236,7 +236,7 @@ def _extract_ops(
     # 交通方式（被否定的不提：不要全部都打车 → 不改交通方式）
     if raw.get("mode") in MODE_LABELS and raw["mode"] != mode and not negated(MODE_LABELS[raw["mode"]]):
         ops["mode"] = raw["mode"]
-        preview.append(f"全程改为{MODE_LABELS[raw['mode']]}")
+        preview.append(f"交通偏好改为{MODE_LABELS[raw['mode']]}，逐段比较实际路线")
         reply_parts.append(f"改{MODE_LABELS[raw['mode']]}")
 
     # 硬上限：预算 / 路上时间（这两条以前完全没有概念，用户说了也白说）
@@ -308,8 +308,8 @@ def _extract_ops(
 # --------------------------------------------------------------------------- #
 # 执行：确认之后才走到这里
 # --------------------------------------------------------------------------- #
-async def apply_ops(base_req: Any, ops: dict[str, Any]) -> tuple[PlanResponse, list[str], str]:
-    """把 ops 合并进请求 → 编译 → 返回 (路书, 变更清单, 一行回执)。"""
+def request_from_ops(base_req: Any, ops: dict[str, Any]) -> tuple[Any, list[str], list[str]]:
+    """预览和确认执行共用同一套合并规则。"""
     destinations = list(base_req.destinations)
     removed = [str(n) for n in (ops.get("removeNames") or [])]
     kept = [d for d in destinations if not any(n and (n in d.name or d.name in n) for n in removed)]
@@ -328,6 +328,9 @@ async def apply_ops(base_req: Any, ops: dict[str, Any]) -> tuple[PlanResponse, l
                 lat=float(item.get("lat") or 0),
                 selected=True,
                 stayMin=int(item.get("stayMin") or 60),
+                openTime=item.get("openTime") or None,
+                closeTime=item.get("closeTime") or None,
+                tags=item.get("tags"),
             )
         )
         added_names.append(name)
@@ -350,34 +353,24 @@ async def apply_ops(base_req: Any, ops: dict[str, Any]) -> tuple[PlanResponse, l
             else getattr(base_req, "limits", None),
         }
     )
+    return new_req, added_names, removed_real
+
+
+async def apply_ops(base_req: Any, ops: dict[str, Any]) -> tuple[PlanResponse, list[str], str]:
+    """把 ops 合并进请求 → 编译 → 返回 (路书, 变更清单, 一行回执)。"""
+    new_req, added_names, removed_real = request_from_ops(base_req, ops)
+    days = new_req.days
     plan = await create_plan(new_req)
 
-    # 约束没满足时，自动换一种交通方式再试一次（预算超 → 更省的方式；时间超 → 更快的方式）
-    changes_extra: str | None = None
-    limit_violations = ((plan.solver or {}).get("limits") or {}).get("violations") or []
-    if limit_violations:
-        alt = None
-        if any("费用" in v for v in limit_violations) and mode not in {"subway", "transit"}:
-            alt = "subway"
-        elif any("分钟" in v for v in limit_violations) and mode != "taxi":
-            alt = "taxi"
-        if alt:
-            retry_req = new_req.model_copy(update={"mode": alt, "legModes": {}})
-            retry_plan = await create_plan(retry_req)
-            retry_violations = ((retry_plan.solver or {}).get("limits") or {}).get("violations") or []
-            if len(retry_violations) < len(limit_violations):
-                plan = retry_plan
-                changes_extra = f"自动改成{MODE_LABELS.get(alt, alt)}以贴近上限"
-
+    # 自动交通已经逐段比较过。执行阶段不能清空手动选择、暗中换全局方式，
+    # 否则用户确认的预览与生成结果会采用不同参数；未满足的上限如实提示。
     changes: list[str] = []
-    if changes_extra:
-        changes.append(changes_extra)
     if added_names:
         changes.append(f"＋{len(added_names)} 地点")
     if removed_real:
         changes.append(f"－{len(removed_real)} 地点")
-    if ops.get("mode") and not changes_extra:
-        changes.append(f"交通改为{MODE_LABELS.get(str(ops['mode']), ops['mode'])}")
+    if ops.get("mode"):
+        changes.append(f"交通偏好改为{MODE_LABELS.get(str(ops['mode']), ops['mode'])}")
     if ops.get("weights"):
         changes.append("偏好已更新")
     if ops.get("days"):
@@ -419,6 +412,9 @@ def _ops_from_arguments(args: dict, index: dict[str, dict]) -> dict[str, Any]:
                 "lng": info["lng"],
                 "lat": info["lat"],
                 "stayMin": int((item or {}).get("stayMin") or info.get("stayMin") or 60),
+                "openTime": info.get("openTime") or None,
+                "closeTime": info.get("closeTime") or None,
+                "tags": info.get("tags"),
             }
         )
     if adds:
@@ -461,7 +457,7 @@ def _preview_from_ops(ops: dict[str, Any]) -> list[str]:
     if ops.get("removeNames"):
         lines.append("去掉 " + "、".join(ops["removeNames"]))
     if ops.get("mode"):
-        lines.append(f"全程改为{MODE_LABELS[ops['mode']]}")
+        lines.append(f"交通偏好改为{MODE_LABELS[ops['mode']]}，逐段比较实际路线")
     if ops.get("weights"):
         lines.append("更看重" + "、".join(WEIGHT_LABELS[k] for k in ops["weights"]))
     if ops.get("days"):

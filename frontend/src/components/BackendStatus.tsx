@@ -62,7 +62,7 @@ export default function BackendStatus() {
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
           后端就绪 · {info.solver}
           <span className="text-slate-400">
-            {info.distanceSource === 'amap' ? ' · 高德实时' : ' · 离线估算'}
+            {info.distanceSource === 'amap' ? ' · 高德路线' : ' · 离线估算'}
           </span>
         </span>
       )}

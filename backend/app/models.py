@@ -88,12 +88,29 @@ class TransportLeg(BaseModel):
     transfers: int = 0
     # 折线是否为直线近似（离线估算时为 True，前端会标注「估算」）
     approx: bool = False
-    # amap = 高德实时，offline = 离线估算
+    # amap = 高德路线，offline = 离线估算；路线来自接口不代表费用是实时报价。
     dataSource: str = "offline"
+    costSource: str = "local_estimate"
+    costApprox: bool = True
+    queriedAt: str | None = None
+    cacheHit: bool = False
+    drivingMin: float | None = None
+    accessWalkMin: float | None = None
     # 公交/地铁的全部候选方案（最优在前）与当前采用的方案摘要。
     # 用户点「最优线路」时可以对比：直达 / 换乘几次 / 公交+地铁组合
     transitOptions: list[TransitOption] | None = None
     transitLabel: str | None = None
+    # —— 单段交通自动寻优 ——
+    # 系统把这一段换成了别的交通方式（例如「打车 1.8km 却要 22 分钟 → 改成步行 18 分钟」）
+    isAutoOptimized: bool = False
+    # 为什么换：直接展示给用户看的一句话
+    optimizationReason: str | None = None
+    # 只是建议、没有强制改（例如步行 35 分钟，打车只要 12 分钟）—— 前端做成提示而不是替换
+    optimizationHint: str | None = None
+    # 这一段的实际交通方式（分段混合交通决策的结果）。
+    # 与全局偏好可能不同：全局选「地铁」时，800 米的那段会是 walk。
+    # 保留 mode 字段是为了兼容老前端，新前端请优先读 transportMode。
+    transportMode: str | None = None
 
 
 class PlanStop(BaseModel):

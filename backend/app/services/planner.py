@@ -27,6 +27,7 @@ from . import amap_client, cache
 from .amap_client import Matrix, build_matrix, leg_route
 from .modes import get_mode
 from .solver import solve
+from .transport_policy import select_leg_routes
 from .timeutil import hhmm_to_min, min_to_hhmm, parse_business_hours
 from .tsp_core import (
     NodeSpec,
@@ -42,6 +43,12 @@ def _selected(req: PlanRequest) -> list[Destination]:
     """取参与规划的目的地：优先用 selected 标记；都没标记时把整份列表当作已选（方便 curl 直接调）。"""
     picked = [d for d in req.destinations if d.selected]
     return picked if picked else list(req.destinations)
+
+
+def _leg_provenance(leg) -> dict:
+    return {"costSource": leg.cost_source, "costApprox": leg.cost_approx,
+            "queriedAt": leg.queried_at, "cacheHit": leg.cache_hit,
+            "drivingMin": leg.driving_min, "accessWalkMin": leg.access_walk_min}
 
 
 def _build_nodes(
@@ -160,6 +167,7 @@ async def _plan_one_day(
     # 第一遍快速探出「哪一站最适合吃午饭」，第二遍把午餐分钟数并进那一站的服务时间。
     # 为什么不事后在时间轴上加 60 分钟？那样求解器算时间窗时是「乐观」的，会出现
     # 「16:45 关门的豫园被排到 17:06」这种自相矛盾的结果 —— 求解口径必须和时间轴一致。
+    base_stay = {node.index: node.stay_min for node in nodes}
     lunch_index: int | None = None
     if lunch_min > 0 and nodes:
         probe = replace(solve_req, time_limit_s=settings.solver_probe_time_limit_s)
@@ -193,52 +201,70 @@ async def _plan_one_day(
             }
         )
 
-    # ---- 逐段精确路径（只对最终顺序取，调用量 = 段数） ----
-    order_with_hotel = [0] + order + [0]
-    # 逐段交通方式：优先用请求里的 legModes（目的地 id → 方式，__return__ 表示回程）
+    # 交通方式必须按实际路线选择；逐段覆盖视为用户明确指定。
+    # 更换方式后重新推演营业时间、午餐和回程，避免展示已不可执行的时间轴。
     leg_modes_req = req.legModes or {}
-    leg_mode_keys: list[str] = []
-    for _a, _b in zip(order_with_hotel, order_with_hotel[1:]):
-        if _b == 0:
-            raw_mode = leg_modes_req.get("__return__", mode_spec.key)
-        else:
-            raw_mode = leg_modes_req.get(index_to_dest[_b].id, mode_spec.key)
-        leg_mode_keys.append(get_mode(raw_mode).key)
-
-    legs = (
-        await asyncio.gather(
-            *[
-                leg_route(
-                    points[a],
-                    points[b],
-                    leg_mode,
-                    matrix,
-                    a,
-                    b,
-                    # 权重传下去：公交段要据此挑「最优线路」（直达优先 + 分钟当量最优）
-                    dict(req.weights.model_dump()),
+    nodes_by_index = {node.index: node for node in nodes}
+    while True:
+        raw_stops: list[_RawStop] = []
+        if not order:
+            legs, leg_mode_keys, route_notes = [], [], []
+            break
+        order_with_hotel = [0] + order + [0]
+        pairs = list(zip(order_with_hotel, order_with_hotel[1:]))
+        keys = [index_to_dest[index].id for index in order] + ["__return__"]
+        preferred_modes = [get_mode(leg_modes_req.get(key, mode_spec.key)).key for key in keys]
+        windows = [
+            (*node_window(nodes_by_index[index], day_start_min, day_end_min), stay_of_global[index])
+            for index in order
+        ] + [(day_start_min, day_end_min, 0)]
+        legs, leg_mode_keys, route_notes = await select_leg_routes(
+            points=points, pairs=pairs, preferred_modes=preferred_modes,
+            locked=[key in leg_modes_req for key in keys], matrix=matrix, weights=weights,
+            windows=windows, start_min=day_start_min,
+        )
+        now = float(day_start_min)
+        invalid_index: int | None = None
+        reason = ""
+        for leg, node_index in zip(legs, order):
+            node = nodes_by_index[node_index]
+            opening, closing = node_window(node, day_start_min, day_end_min)
+            stay = float(stay_of_global[node_index])
+            arrive = max(now + leg.duration_min, float(opening))
+            leave = arrive + stay
+            if leave > closing + 1e-6:
+                invalid_index = node_index
+                reason = (
+                    f"按交通路线推演，{min_to_hhmm(arrive)} 到达、"
+                    f"{min_to_hhmm(leave)} 完成停留，超过营业/行程截止 {min_to_hhmm(closing)}"
                 )
-                for (a, b), leg_mode in zip(zip(order_with_hotel, order_with_hotel[1:]), leg_mode_keys)
-            ]
-        )
-        if len(order_with_hotel) > 1
-        else []
-    )
-
-    # ---- 时间轴推演（注意停留时间要取「含午餐」的那份） ----
-    raw_stops: list[_RawStop] = []
-    now = float(day_start_min)
-    for leg, node_index in zip(legs, order):
-        dest = index_to_dest[node_index]
-        node = next(n for n in nodes if n.index == node_index)
-        stay = float(stay_of_global.get(node_index, node.stay_min))
-        arrive = max(
-            now + leg.duration_min, float(node_window(node, day_start_min, day_end_min)[0])
-        )
-        raw_stops.append(
-            _RawStop(index=node_index, dest=dest, arrive=arrive, leave=arrive + stay, stay=stay, leg=leg)
-        )
-        now = arrive + stay
+                break
+            raw_stops.append(_RawStop(
+                index=node_index, dest=index_to_dest[node_index], arrive=arrive,
+                leave=leave, stay=stay, leg=leg,
+            ))
+            now = leave
+        if invalid_index is None and now + legs[-1].duration_min > day_end_min + 1e-6:
+            invalid_index = order[-1]
+            reason = (
+                f"按交通路线推演将于 {min_to_hhmm(now + legs[-1].duration_min)} 回酒店，"
+                f"超过 {min_to_hhmm(day_end_min)}；保留回程时间后无法排入"
+            )
+        if invalid_index is None:
+            break
+        dest = index_to_dest[invalid_index]
+        dropped.append({"id": dest.id, "name": dest.name, "reason": reason, "day": title})
+        notes.append(f"「{dest.name}」未排入：{reason}，请调整地点、停留或出行时间")
+        order.remove(invalid_index)
+        # 被移除的地点若包含午餐，将午餐转移到仍在行程中的合适站点，再校验。
+        if invalid_index == lunch_index:
+            lunch_index = _pick_lunch_index(replace(result, order=order), req.options.lunchWindow)
+            nodes = [replace(
+                node, stay_min=base_stay[node.index] + (lunch_min if node.index == lunch_index else 0),
+            ) for node in nodes]
+            nodes_by_index = {node.index: node for node in nodes}
+            stay_of_global = {node.index: node.stay_min for node in nodes}
+    notes.extend(route_notes)
 
     stops = [
         PlanStop(
@@ -259,8 +285,13 @@ async def _plan_one_day(
                 transfers=int(getattr(stop.leg, "transfers", 0)),
                 approx=bool(stop.leg.approx),
                 dataSource=stop.leg.data_source,
+                **_leg_provenance(stop.leg),
                 transitOptions=_transit_options_of(stop.leg),
                 transitLabel=getattr(stop.leg, "transit_label", None),
+                isAutoOptimized=bool(getattr(stop.leg, "is_auto_optimized", False)),
+                optimizationReason=getattr(stop.leg, "optimization_reason", None),
+                optimizationHint=getattr(stop.leg, "optimization_hint", None),
+                transportMode=leg_mode_keys[index] if index < len(leg_mode_keys) else mode_spec.key,
             ),
         )
         for index, stop in enumerate(raw_stops)
@@ -289,8 +320,13 @@ async def _plan_one_day(
             transfers=int(getattr(back, "transfers", 0)),
             approx=bool(back.approx),
             dataSource=back.data_source,
+            **_leg_provenance(back),
             transitOptions=_transit_options_of(back),
             transitLabel=getattr(back, "transit_label", None),
+            isAutoOptimized=bool(getattr(back, "is_auto_optimized", False)),
+            optimizationReason=getattr(back, "optimization_reason", None),
+            optimizationHint=getattr(back, "optimization_hint", None),
+            transportMode=leg_mode_keys[-1] if leg_mode_keys else mode_spec.key,
         )
 
     # ---- 回程时刻以「逐段实算」为准 ----
@@ -298,7 +334,7 @@ async def _plan_one_day(
     # 矩阵估算值，就会出现「16:54 离开 + 回程 218 分钟 = 14:24 到酒店」这种自相矛盾。
     # 两者口径不同（矩阵用于排序、方向 API 用于展示），展示必须以实算为准。
     solver_return = result.return_min
-    computed_return = raw_stops[-1].leave + legs[-1].duration_min if (raw_stops and legs) else None
+    computed_return = raw_stops[-1].leave + legs[-1].duration_min if (raw_stops and legs) else float(day_start_min)
     return_min = computed_return if computed_return is not None else solver_return
     if (
         computed_return is not None
@@ -471,6 +507,7 @@ async def create_plan(req: PlanRequest) -> PlanResponse:
         # 兼容模块 2 的前端契约：顶层 polylines = 第 1 天的折线（多日请读 days[i].polylines）
         polylines=day_results[0].polylines,
         solver={
+            "routingVersion": amap_client.ROUTING_DATA_VERSION,
             "name": day_results[0].solver_name,
             "objectiveMinutes": round(sum(r.objective for r in day_results), 2),
             "dataSource": matrix.data_source,
@@ -551,9 +588,8 @@ def _explain_day(
     if not stops:
         return "本日没有可排入行程的目的地。"
 
-    spec = get_mode(req.mode)
     parts = [
-        f"以{spec.label}为主要交通方式，依次游览 {len(stops)} 个目的地后返回酒店：",
+        f"按实际路线逐段选择交通，依次游览 {len(stops)} 个目的地后返回酒店：",
         " → ".join(stop.name for stop in stops) + "。",
     ]
     first = stops[0]
@@ -590,7 +626,6 @@ def _explain_overall(
     warnings: list[str],
 ) -> str:
     """整体解释：多日时先说分天逻辑，再给总量与权重说明。"""
-    spec = get_mode(req.mode)
     weight_hint = "、".join(
         f"{label}{weights[key]:.1f}"
         for key, label in (
@@ -600,7 +635,7 @@ def _explain_overall(
             ("walking", "步行"),
         )
     )
-    source_hint = "高德实时路况" if data_source == "amap" else "离线估算（未配置高德 Web 服务 Key）"
+    source_hint = "高德路线（费用与接驳为估算，路况为查询时参考）" if data_source == "amap" else "离线估算（未配置高德 Web 服务 Key）"
 
     parts: list[str] = []
     if len(results) > 1:
@@ -610,7 +645,7 @@ def _explain_overall(
             f"再对每天分别求最优顺序（每天从酒店出发、回到酒店）。"
         )
     else:
-        parts.append(f"「{req.hotel.name}」出发的一日路书，以{spec.label}为主要交通方式。")
+        parts.append(f"「{req.hotel.name}」出发的一日路书，交通方式按实际路线与偏好逐段选择。")
 
     for result in results:
         stops = result.day.stops

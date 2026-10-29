@@ -13,7 +13,7 @@ import json
 import re
 from typing import Any
 
-from ..models import Destination, PlanOptions, PlanRequest, TripLimits, Weights
+from ..models import PlanOptions, PlanRequest, TripLimits, Weights
 from . import agent, llm
 from .ai_schemas import (
     AGENT_SYSTEM_PROMPT,
@@ -30,6 +30,142 @@ HOTEL_HINT = re.compile(r"酒店|住宿|民宿|宾馆|宾馆")
 
 def _index(ctx: dict[str, Any]) -> dict[str, dict]:
     return agent._poi_index(ctx.get("city_pois") or [])
+
+
+def _base_request(ctx: dict) -> PlanRequest:
+    return PlanRequest(
+        hotel=ctx["hotel"], destinations=ctx.get("destinations") or [],
+        days=ctx["days"], mode=ctx["mode"], weights=Weights(**ctx["weights"]),
+        options=PlanOptions(**ctx["options"]), legModes=ctx.get("legModes"),
+        limits=TripLimits(**ctx["limits"]) if ctx.get("limits") else None,
+    )
+
+
+def _summary(plan, label: str) -> dict:
+    # 按实际交通段累加，显式包含每天的返程，避免模型混用去程与全天口径。
+    legs = [leg for day in plan.days for leg in (
+        *[stop.transportFromPrev for stop in day.stops], day.returnLeg,
+    ) if leg is not None]
+    modes = sorted({leg.transportMode or leg.mode for leg in legs})
+    return {
+        "label": label, "includesReturn": True,
+        "cost": round(sum(leg.cost for leg in legs), 2),
+        "transitMin": round(sum(leg.durationMin for leg in legs), 1),
+        "walkKm": round(sum(leg.walkKm for leg in legs), 2),
+        "transfers": sum(leg.transfers for leg in legs), "actualModes": modes,
+        "costApprox": any(leg.costApprox for leg in legs),
+        "approx": any(leg.approx or leg.dataSource != "amap" for leg in legs),
+        "days": [{"order": [s.name for s in day.stops], "returnTime": day.returnTime}
+                 for day in plan.days],
+        "dropped": (plan.solver or {}).get("dropped") or [],
+        "violations": ((plan.solver or {}).get("limits") or {}).get("violations") or [],
+    }
+
+
+async def _preview_request(req: PlanRequest, *, compare: bool) -> dict:
+    chosen = _summary(await create_plan(req), "按偏好自动选择")
+    alternatives = []
+    if compare and req.mode != "drive":
+        # 比较公共交通基准时锁定自动段；已有的逐段手动选择保持不变。
+        locks = {d.id: "transit" for d in req.destinations if d.selected}
+        locks["__return__"] = "transit"
+        locks.update(req.legModes or {})
+        public_req = req.model_copy(update={"mode": "transit", "legModes": locks})
+        public_plan = await create_plan(public_req)
+        alternatives.append(_summary(public_plan, "公共交通方案"))
+        # 自动选择也可能全是公共交通。此时额外展示一段打车的真实对照，
+        # 让用户看见减少耗时/步行需要增加多少费用，而非两条相同结果。
+        if "taxi" not in chosen["actualModes"]:
+            candidates = []
+            for day in public_plan.days:
+                candidates.extend((stop.transportFromPrev.durationMin, stop.id)
+                                  for stop in day.stops if stop.transportFromPrev
+                                  and stop.id not in (req.legModes or {}))
+                if len(public_plan.days) == 1 and day.returnLeg and "__return__" not in (req.legModes or {}):
+                    candidates.append((day.returnLeg.durationMin, "__return__"))
+            if candidates:
+                _, key = max(candidates)
+                mixed_req = public_req.model_copy(update={"legModes": {**locks, key: "taxi"}})
+                alternatives.append(_summary(await create_plan(mixed_req), "公共交通＋一段打车"))
+    return {**chosen, "alternatives": alternatives, "requestKey": req.model_dump_json()}
+
+
+def _requested_modes(text: str) -> set[str]:
+    """“少走路/不要长距离步行”是步行负担要求，不能当成选择步行。"""
+    modes = set()
+    for pattern, mode in [(r"公共交通", "transit"), *agent.nlp_rules.MODE_KEYWORDS]:
+        for match in re.finditer(pattern, text):
+            prefix = re.split(r"[，。；、,;]", text[:match.start()])[-1]
+            if re.search(r"(?:不要|不想|不坐|不打|不用|别|避免|少)[^，。；]{0,12}$", prefix):
+                continue
+            modes.add(mode)
+    return modes
+
+
+async def prepare_transport_proposal(proposal: agent.Proposal, ctx: dict, evidence: list[dict]) -> agent.Proposal:
+    """在展示提案前核验最终参数，方案数字由程序提供，不依赖模型复述。"""
+    if proposal.kind != "act" or not proposal.ops:
+        return proposal
+    explicit = _requested_modes(str(ctx.get("text") or ""))
+    # 模型不能凭“合理安排/少走路”擅自指定一个整体方式。
+    if proposal.ops.get("mode") not in explicit:
+        proposal.ops.pop("mode", None)
+    proposal.preview = agent._preview_from_ops(proposal.ops)
+    proposal.reply = "准备按你的偏好逐段安排交通，确认后生成；含返程的时间、步行量和费用见下方。"
+    try:
+        req, _, _ = agent.request_from_ops(_base_request(ctx), proposal.ops)
+        if not any(d.selected for d in req.destinations):
+            proposal.reply = "准备更新这些设置，确认后生效。"
+            return proposal
+        key = req.model_dump_json()
+        result = next((item["result"] for item in reversed(evidence)
+                       if item.get("tool") == "preview_plan"
+                       and item.get("result", {}).get("requestKey") == key
+                       and item["result"].get("alternatives")), None)
+        if result is None:
+            result = await _preview_request(req, compare=not explicit)
+            evidence.append({"tool": "preview_plan", "result": result})
+        if not explicit and req.mode != "drive":
+            proposal.preview.append("逐段比较公共交通和打车，短途比较步行")
+        displayed = set()
+        for summary in [result, *(result.get("alternatives") or [])]:
+            signature = json.dumps({k: v for k, v in summary.items()
+                                    if k not in {"label", "alternatives", "requestKey"}}, sort_keys=True)
+            if signature in displayed:
+                continue
+            displayed.add(signature)
+            mode_labels = "＋".join("公共交通" if m == "transit" else agent.MODE_LABELS.get(m, m)
+                                    for m in summary["actualModes"]) or "无交通段"
+            basis = "离线估算" if summary["approx"] else "路线试算"
+            proposal.preview.append(
+                f"{summary['label']}（{mode_labels}，{basis}，含返程）："
+                f"交通约{summary['transitMin']:.0f}分钟，接驳步行约{summary['walkKm']:.1f}公里，"
+                f"费用约¥{summary['cost']:.0f}，换乘{summary['transfers']}次"
+            )
+            if summary["dropped"]:
+                proposal.preview.append(f"{summary['label']}：有{len(summary['dropped'])}个地点未排入，不能按同一完整行程比较")
+            proposal.preview.extend(f"{summary['label']}：{v}" for v in summary["violations"])
+        if result.get("alternatives"):
+            public = result["alternatives"][0]
+            for candidate in [result, *result["alternatives"][1:]]:
+                visits = lambda s: sorted(name for day in s["days"] for name in day["order"])
+                if visits(candidate) == visits(public) and candidate["approx"] == public["approx"]:
+                    walk_saved = public["walkKm"] - candidate["walkKm"]
+                    added_cost = candidate["cost"] - public["cost"]
+                    saved_time = public["transitMin"] - candidate["transitMin"]
+                    if (walk_saved > 0.05 or saved_time > 1) and added_cost > 0.5:
+                        benefits = []
+                        if saved_time > 1:
+                            benefits.append(f"省约{saved_time:.0f}分钟")
+                        if walk_saved > 0.05:
+                            benefits.append(f"少走约{walk_saved:.1f}公里")
+                        proposal.preview.append(f"取舍：{candidate['label']}较公共交通{'、'.join(benefits)}，费用增加约¥{added_cost:.0f}")
+        proposal.preview.append("确认后按当前偏好方案生成；可继续调整时间、步行或费用偏好")
+        proposal.preview.append("接驳步行不含景点内游览；费用为路线接口估算")
+    except Exception:
+        proposal.reply = "准备按你的偏好逐段安排交通；当前试算未完成，确认后计算实际路线。"
+        proposal.warnings.append("交通方案试算未完成，尚不能确认耗时、步行量和费用")
+    return proposal
 
 
 async def _run_tool(name: str, args: dict, ctx: dict[str, Any], index: dict[str, dict]) -> dict:
@@ -53,44 +189,11 @@ async def _run_tool(name: str, args: dict, ctx: dict[str, Any], index: dict[str,
         picked = [index[n] for n in names if n in index]
         if not picked:
             return {"error": "这些地点不在候选库里", "available": list(index)[:12]}
-        destinations = [
-            Destination(
-                id=f"pv{i}",
-                name=item["name"],
-                lng=float(item["lng"]),
-                lat=float(item["lat"]),
-                selected=True,
-                stayMin=int(item.get("stayMin") or 60),
-            )
-            for i, item in enumerate(picked)
-        ]
-        limits = None
-        if args.get("budgetCap") or args.get("transitCapMin"):
-            limits = TripLimits(
-                budgetCap=args.get("budgetCap"),
-                transitCapMin=args.get("transitCapMin"),
-            )
-        req = PlanRequest(
-            hotel=ctx["hotel"],
-            destinations=destinations,
-            days=int(args.get("days") or ctx["days"]),
-            mode=str(args.get("mode") or ctx["mode"]),
-            weights=Weights(**ctx["weights"]),
-            options=PlanOptions(**ctx["options"]),
-            limits=limits,
-        )
-        plan = await create_plan(req)
-        stats = (plan.solver or {}).get("totalStats") or {}
-        day = plan.days[0] if plan.days else None
-        return {
-            "cost": stats.get("totalCost"),
-            "transitMin": stats.get("totalTransitMin"),
-            "walkKm": stats.get("totalWalkKm"),
-            "order": [s.name for s in (day.stops if day else [])],
-            "returnTime": getattr(day, "returnTime", None),
-            "violations": ((plan.solver or {}).get("limits") or {}).get("violations") or [],
-            "mode": str(args.get("mode") or ctx["mode"]),
-        }
+        base = _base_request(ctx)
+        ops = agent._ops_from_arguments({**args, "addPlaces": [{"name": n} for n in names]}, index)
+        ops["removeNames"] = [d.name for d in base.destinations if d.name not in names]
+        req, _, _ = agent.request_from_ops(base, ops)
+        return await _preview_request(req, compare=bool(args.get("compareTransport", True)))
 
     return {"error": f"未知工具 {name}"}
 
@@ -145,7 +248,9 @@ async def run(ctx: dict[str, Any]) -> tuple[agent.Proposal, list[dict]]:
             {"role": "assistant", "content": f"（调用 {name}：{json.dumps(args, ensure_ascii=False)}）"}
         )
         messages.append(
-            {"role": "user", "content": "工具结果：" + json.dumps(result, ensure_ascii=False)[:900]}
+            {"role": "user", "content": "工具结果：" + json.dumps(
+                {k: v for k, v in result.items() if k != "requestKey"}, ensure_ascii=False,
+            )[:4500]}
         )
 
     # 步数用尽 / 模型没给提案：强制收口

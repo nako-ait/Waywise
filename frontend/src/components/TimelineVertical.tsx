@@ -8,7 +8,7 @@ import { usePlanController } from '@/hooks/usePlanController'
 import { useTripStore } from '@/store/useTripStore'
 import AddStopDialog from './AddStopDialog'
 import TransitOptions from './TransitOptions'
-import type { TravelMode } from '@/types'
+import type { TransportLeg, TravelMode } from '@/types'
 
 /**
  * 竖排路书（1.1 主视图）：右侧栏 + 详情页共用。
@@ -26,6 +26,7 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
   const selectedLeg = useTripStore((s) => s.selectedLeg)
   const setSelectedLeg = useTripStore((s) => s.setSelectedLeg)
   const setLegMode = useTripStore((s) => s.setLegMode)
+  const clearLegMode = useTripStore((s) => s.clearLegMode)
   const updateDestination = useTripStore((s) => s.updateDestination)
   const showToast = useTripStore((s) => s.showToast)
   const { run, planning } = usePlanController()
@@ -41,19 +42,38 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
     window.setTimeout(() => void run(), 0)
   }
 
-  function legSwitcher(legKey: string | null, current: TravelMode) {
+  function legSwitcher(legKey: string | null, current: TravelMode, leg?: TransportLeg | null) {
     if (readOnly) return null
+    const manual = Boolean(legKey && legModes[legKey])
+    const rides = current === (leg?.transportMode ?? leg?.mode) ? leg?.transitOptions?.[0]?.rides : undefined
+    const rideKinds = [...new Set(rides?.map((ride) => ride.kind).filter(Boolean) ?? [])]
+    const label = (current === 'transit' || current === 'subway') && rideKinds.length
+      ? rideKinds.join('＋') : MODE_STYLES[current].label
     return (
-      <span className="flex flex-wrap items-center gap-0.5">
+      <>
+        <span className="flex basis-full flex-wrap items-center gap-1.5">
+          <span className="rounded bg-slate-900 px-1.5 py-0.5 font-medium text-white">当前：{label}</span>
+          <span className="text-slate-500">{manual ? '手动指定' : '自动选择'}</span>
+          {manual && (
+            <button
+              className="rounded border border-slate-200 px-1 py-0.5 text-[9px] leading-3 text-sky-700 hover:bg-sky-50 disabled:opacity-50"
+              title="取消手动指定，按当前路线偏好重新选择这一段的交通方式"
+              disabled={planning || !legKey}
+              onClick={() => { if (legKey) recompile(() => clearLegMode(legKey), '这一段恢复自动选择，正在重算') }}
+            >恢复自动</button>
+          )}
+        </span>
+        <span className="flex flex-wrap items-center gap-0.5">
+          <span className="mr-0.5 text-[9px] text-slate-400">改为</span>
         {MODE_ORDER.map((key) => (
           <button
             key={key}
             className={`rounded px-1 py-0.5 text-[9px] leading-3 transition-colors ${
               current === key
-                ? 'bg-slate-900 text-white'
+                ? 'bg-slate-200 font-medium text-slate-800'
                 : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
             }`}
-            title={`这一段改成${MODE_STYLES[key].label}`}
+            title={`指定这一段为${MODE_STYLES[key].label}，调整偏好时会保留`}
             disabled={planning || !legKey}
             onClick={() => {
               if (!legKey) return
@@ -66,11 +86,45 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
             {MODE_STYLES[key].label}
           </button>
         ))}
-      </span>
+        </span>
+      </>
     )
   }
 
+  function legFeedback(leg: TransportLeg | null | undefined) {
+    const isTaxi = (leg?.transportMode ?? leg?.mode) === 'taxi'
+    const checkedAt = leg?.queriedAt ? new Date(leg.queriedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : null
+    return (
+      <>
+        {isTaxi && (
+          <span className="basis-full text-[10px] leading-4 text-slate-500">
+            {leg?.costSource === 'amap_taxi_estimate' ? '高德出租车费用估算' : '本地费用估算，未取得平台报价'}
+            {checkedAt ? ` · ${checkedAt}查询${leg?.cacheHit ? '（缓存）' : ''}` : ''}
+            ；不含叫车等待
+          </span>
+        )}
+        {leg?.isAutoOptimized && (
+          <span className="basis-full text-[10px] leading-4 text-sky-700" title={leg.optimizationReason ?? undefined}>
+            ⚡ {leg.optimizationReason ?? '已按实际路线调整交通方式'}
+          </span>
+        )}
+        {leg?.optimizationHint && (
+          <span className="basis-full text-[10px] leading-4 text-amber-700">
+            💡 {leg.optimizationHint}
+          </span>
+        )}
+      </>
+    )
+  }
+
+  function legCost(leg: TransportLeg | null | undefined) {
+    if (!leg) return null
+    const label = leg.cost === 0 ? '¥0' : `${leg.costApprox !== false ? '约' : ''}${formatMoney(leg.cost)}`
+    return <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600">本段交通费 {label}</span>
+  }
+
   if (!plan || !day || !day.stops.length) {
+    const dropped = (plan?.solver?.dropped ?? []) as Array<{ id?: string; name: string; reason: string }>
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
         <p className="text-sm text-slate-500">还没有路书</p>
@@ -79,15 +133,20 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
           <br />
           把细节聊清楚后点「编译路书」。
         </p>
+        {dropped.map((item) => (
+          <p key={item.id ?? item.name} className="text-xs leading-5 text-amber-700">
+            {item.name}未排入：{item.reason}
+          </p>
+        ))}
       </div>
     )
   }
 
   const meta = plan.solver
   const isAmap = meta?.dataSource === 'amap'
-  const returnMode = modeStyle(meta?.mode ?? currentMode)
-  const activeMode = (meta?.mode as TravelMode) ?? currentMode
+  const returnMode = modeStyle(day.returnLeg?.transportMode ?? day.returnLeg?.mode ?? meta?.mode ?? currentMode)
   const totals = meta?.totalStats ?? day.stats
+  const dropped = (meta?.dropped ?? []) as Array<{ id?: string; name: string; reason: string; day?: string }>
 
   return (
     <div className="flex h-full flex-col">
@@ -118,15 +177,22 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
             交通 <b className="font-semibold text-slate-800">{formatMinutes(totals.totalTransitMin)}</b>
           </span>
           <span>
-            花费 <b className="font-semibold text-slate-800">{formatMoney(totals.totalCost)}</b>
+            交通费约 <b className="font-semibold text-slate-800">{formatMoney(totals.totalCost)}</b>
           </span>
         </div>
         <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-400">
-          <span className="rounded bg-slate-100 px-1.5 py-0.5">{isAmap ? '高德实时' : '离线估算'}</span>
+          <span className="rounded bg-slate-100 px-1.5 py-0.5">{isAmap ? '高德路线' : '离线估算'}</span>
+          {!readOnly && <button className="ml-auto rounded border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 disabled:opacity-50" disabled={planning} onClick={() => void run()}>{planning ? '核算中…' : '重新核算交通'}</button>}
           {meta?.name && <span className="rounded bg-slate-100 px-1.5 py-0.5">{meta.name}</span>}
           {isMultiDay && <span>第 {dayIndex + 1}/{dayCount} 天</span>}
         </div>
       </div>
+
+      {dropped.filter((item) => !item.day || item.day === day.title).map((item) => (
+        <div key={item.id ?? item.name} className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-[10px] leading-4 text-amber-800">
+          {item.name}未排入：{item.reason}
+        </div>
+      ))}
 
       {/* 时间轴主体 */}
       <div className="tc-scroll min-h-0 flex-1 overflow-y-auto px-3 py-3">
@@ -143,7 +209,8 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
 
         {day.stops.map((stop, index) => {
           const leg = stop.transportFromPrev
-          const style = modeStyle(leg?.mode ?? currentMode)
+          const style = modeStyle(leg?.transportMode ?? leg?.mode ?? currentMode)
+          const fromName = index === 0 ? hotel.name : day.stops[index - 1].name
           const closedDays = destinations.find((item) => item.id === stop.id)?.closedWeekdays
           return (
             <div key={stop.id}>
@@ -154,16 +221,20 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
                 }`}
                 onClick={() => setSelectedLeg(selectedLeg === index ? null : index)}
               >
-                <span className="h-3 w-px bg-slate-200" />
+                <span className="basis-full truncate text-[10px] text-slate-500" title={`${fromName} → ${stop.name}`}>
+                  {fromName} → {stop.name}
+                </span>
                 {readOnly ? (
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">{style.label}</span>
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">{style.icon} {style.label}</span>
                 ) : (
                   // 以 store 里的逐段覆盖为准（点了立刻高亮，不用等编译回来）
-                  legSwitcher(stop.id, (legModes[stop.id] as TravelMode) ?? (leg?.mode as TravelMode) ?? currentMode)
+                  legSwitcher(stop.id, (legModes[stop.id] as TravelMode) ?? style.key, leg)
                 )}
-                <span>{leg ? `${Math.round(leg.durationMin)} 分 · ${leg.distanceKm} km` : '—'}</span>
+                <span>{leg ? `约${Math.round(leg.durationMin)} 分 · ${leg.distanceKm} km` : '—'}</span>
+                {legCost(leg)}
                 {leg?.approx && <span>*</span>}
                 <TransitOptions options={leg?.transitOptions} />
+                {legFeedback(leg)}
               </div>
 
               <div className="flex gap-2">
@@ -203,22 +274,21 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
                     {isClosedToday(closedDays) && (
                       <span className="rounded bg-red-50 px-1 text-red-600">今天闭馆</span>
                     )}
-                    {leg && leg.cost > 0 && <span>· {formatMoney(leg.cost)}</span>}
                   </div>
                   {!readOnly && (
                     <div className="mt-1 flex gap-2 text-[10px] text-slate-300">
                       <a
                         className="hover:text-slate-700"
-                        href={stopNavUrl(stop, previousPointFor(day, index, hotel), activeMode, weights)}
+                        href={stopNavUrl(stop, previousPointFor(day, index, hotel), style.key, weights)}
                         target="_blank"
                         rel="noreferrer"
-                        title={navHint(activeMode, weights)}
+                        title={navHint(style.key, weights)}
                       >
                         导航
                       </a>
                       <a
                         className="hover:text-slate-700"
-                        href={fromHereNavUrl(stop, activeMode, weights)}
+                        href={fromHereNavUrl(stop, style.key, weights)}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -234,21 +304,26 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
 
         {/* 回酒店 */}
         <div className="flex flex-wrap items-center gap-2 py-1 pl-7 text-[10px] text-slate-400">
-          <span className="h-3 w-px bg-slate-200" />
+          <span className="basis-full truncate text-[10px] text-slate-500" title={`${day.stops[day.stops.length - 1].name} → ${hotel.name}`}>
+            {day.stops[day.stops.length - 1].name} → {hotel.name}
+          </span>
           {readOnly ? (
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">{returnMode.label}</span>
           ) : (
             legSwitcher(
               '__return__',
-              (legModes.__return__ as TravelMode) ?? (day.returnLeg?.mode as TravelMode) ?? returnMode.key,
+              (legModes.__return__ as TravelMode) ?? returnMode.key,
+              day.returnLeg,
             )
           )}
           <span>
             {day.returnLeg
-              ? `${Math.round(day.returnLeg.durationMin)} 分 · ${day.returnLeg.distanceKm} km`
+              ? `约${Math.round(day.returnLeg.durationMin)} 分 · ${day.returnLeg.distanceKm} km`
               : '—'}
           </span>
+          {legCost(day.returnLeg)}
           <TransitOptions options={day.returnLeg?.transitOptions} />
+          {legFeedback(day.returnLeg)}
         </div>
         <div className="flex gap-2">
           <div className="flex w-5 flex-col items-center">

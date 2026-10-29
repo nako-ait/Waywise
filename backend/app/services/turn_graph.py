@@ -107,7 +107,10 @@ def verify_proposal(proposal: agent.Proposal, ctx: dict, evidence: list[dict]) -
 
 
 async def _verify_node(state: TurnState) -> TurnState:
-    return {"proposal": verify_proposal(state["proposal"], state["ctx"], state.get("evidence") or [])}
+    evidence = state.get("evidence") or []
+    ctx = {**state["ctx"], "text": state["text"]}
+    proposal = await agent_loop.prepare_transport_proposal(state["proposal"], ctx, evidence)
+    return {"proposal": verify_proposal(proposal, ctx, evidence), "evidence": evidence}
 
 
 _compiled = None

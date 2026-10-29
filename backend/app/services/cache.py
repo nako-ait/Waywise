@@ -38,9 +38,11 @@ def make_key(namespace: str, payload: Any) -> str:
     return f"{namespace}:{digest}"
 
 
-def get(key: str) -> Any | None:
+def get(key: str, *, max_age_seconds: float | None = None) -> Any | None:
     """取缓存；过期或损坏都当作未命中（不抛异常，保证主流程不被打断）。"""
     ttl_seconds = settings.amap_cache_ttl_hours * 3600
+    if max_age_seconds is not None:
+        ttl_seconds = min(ttl_seconds, max_age_seconds) if ttl_seconds > 0 else max_age_seconds
     try:
         with _connect() as conn:
             row = conn.execute(

@@ -1,4 +1,4 @@
-"""一键自检：把四个模块的测试脚本依次跑一遍，输出汇总表。
+"""一键自检：依次运行模块与交通决策回归测试，输出汇总表。
 
 用法（在 backend/ 目录下）：
     .venv\\Scripts\\python.exe scripts\\verify_all.py
@@ -24,6 +24,9 @@ SUITES: list[tuple[str, str, str]] = [
     ("test_plan.py", "模块 2", "单日路线规划（5 种交通方式 + 权重）"),
     ("test_module3.py", "模块 3", "多日分天 + 等时圈"),
     ("test_module4.py", "模块 4", "AI 解析 / 一句话重规划 / 解释"),
+    ("test_transport_policy.py", "交通决策", "跨江长步行 / 手动方式 / 体力与时间窗"),
+    ("test_agent_transport.py", "交通提案", "混合交通比较 / 往返统计 / 预览与执行一致"),
+    ("test_taxi_data.py", "打车数据", "车辆出入口 / 接口费用 / 时效与缓存"),
 ]
 
 FAIL_TAIL_LINES = 18

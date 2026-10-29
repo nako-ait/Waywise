@@ -175,6 +175,7 @@ export interface TripState {
   setMode: (mode: TravelMode) => void
   /** 改某一段的交通方式（destId = 目的地 id，"__return__" 表示回程） */
   setLegMode: (destId: string, mode: TravelMode) => void
+  clearLegMode: (destId: string) => void
   clearLegModes: () => void
   setSelectedLeg: (index: number | null) => void
   setWeight: (key: keyof Weights, value: number) => void
@@ -504,6 +505,11 @@ export const useTripStore = create<TripState>()(
       setMode: (mode) => set({ mode, legModes: {} }),
       setLegMode: (destId, mode) =>
         set((state) => ({ legModes: { ...state.legModes, [destId]: mode } })),
+      clearLegMode: (destId) => set((state) => {
+        const legModes = { ...state.legModes }
+        delete legModes[destId]
+        return { legModes }
+      }),
       clearLegModes: () => set({ legModes: {} }),
       setSelectedLeg: (selectedLeg) => set({ selectedLeg }),
       setWeight: (key, value) =>

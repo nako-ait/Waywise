@@ -31,6 +31,10 @@ class ModeSpec:
     comfort_min: float        # 方式本身的不适感折算（分钟）
     amap_distance_type: int   # 高德 v3/distance 的 type：1=驾车，3=步行
     amap_direction: str       # 高德 v3/direction 下的路径：walking / driving / transit
+    # 进出站固定代价（分钟）：地铁/公交不是门到门的 —— 要下到站台、候车、出站再走。
+    # 这笔开销**只加进距离矩阵**（影响排序决策），不加进展示耗时
+    # （展示用 leg_route 的真实结果，那段已经含了接驳步行，否则会重复计算）。
+    access_penalty_min: float = 0.0
 
 
 MODE_SPECS: dict[str, ModeSpec] = {
@@ -38,31 +42,31 @@ MODE_SPECS: dict[str, ModeSpec] = {
         key="walk", label="步行", color="#475569",
         speed_kmh=4.5, detour=1.25, fare_base=0.0, fare_per_km=0.0, fare_free_km=0.0,
         walk_ratio=1.0, walk_cap_km=999.0, transfer_min=0.0, transfer_km=0.0, comfort_min=0.0,
-        amap_distance_type=3, amap_direction="walking",
+        amap_distance_type=3, amap_direction="walking", access_penalty_min=0.0,
     ),
     "transit": ModeSpec(
         key="transit", label="公交", color="#475569",
         speed_kmh=17.0, detour=1.45, fare_base=2.0, fare_per_km=0.12, fare_free_km=10.0,
         walk_ratio=0.35, walk_cap_km=1.2, transfer_min=9.0, transfer_km=5.0, comfort_min=3.0,
-        amap_distance_type=1, amap_direction="transit",
+        amap_distance_type=1, amap_direction="transit", access_penalty_min=10.0,
     ),
     "subway": ModeSpec(
         key="subway", label="地铁", color="#475569",
         speed_kmh=30.0, detour=1.5, fare_base=3.0, fare_per_km=0.10, fare_free_km=6.0,
         walk_ratio=0.30, walk_cap_km=1.4, transfer_min=7.0, transfer_km=7.0, comfort_min=4.0,
-        amap_distance_type=1, amap_direction="transit",
+        amap_distance_type=1, amap_direction="transit", access_penalty_min=10.0,
     ),
     "taxi": ModeSpec(
         key="taxi", label="打车", color="#475569",
         speed_kmh=24.0, detour=1.35, fare_base=16.0, fare_per_km=2.7, fare_free_km=3.0,
         walk_ratio=0.05, walk_cap_km=0.25, transfer_min=0.0, transfer_km=0.0, comfort_min=1.0,
-        amap_distance_type=1, amap_direction="driving",
+        amap_distance_type=1, amap_direction="driving", access_penalty_min=0.0,
     ),
     "drive": ModeSpec(
         key="drive", label="驾车", color="#475569",
         speed_kmh=28.0, detour=1.35, fare_base=0.0, fare_per_km=0.8, fare_free_km=0.0,
         walk_ratio=0.15, walk_cap_km=0.6, transfer_min=0.0, transfer_km=0.0, comfort_min=2.0,
-        amap_distance_type=1, amap_direction="driving",
+        amap_distance_type=1, amap_direction="driving", access_penalty_min=0.0,
     ),
 }
 

@@ -41,9 +41,25 @@ if not exist "frontend\node_modules\vite\bin\vite.js" (
 
 echo.
 echo [3/3] 启动服务...
-start "TripCompiler 后端 :8000" cmd /k "%~dp0_backend.bat"
+"%~dp0backend\.venv\Scripts\python.exe" "%~dp0backend\scripts\check_service.py" backend
+if errorlevel 20 (
+    echo [ERROR] Resolve the occupied service port and run the launcher again.
+    pause
+    exit /b 1
+)
+if errorlevel 10 (
+    start "TripCompiler 后端 :8000" cmd /k "%~dp0_backend.bat"
+)
 ping 127.0.0.1 -n 5 >nul
-start "TripCompiler 前端 :5173" cmd /k "%~dp0_frontend.bat"
+"%~dp0backend\.venv\Scripts\python.exe" "%~dp0backend\scripts\check_service.py" frontend
+if errorlevel 20 (
+    echo [ERROR] Resolve the occupied service port and run the launcher again.
+    pause
+    exit /b 1
+)
+if errorlevel 10 (
+    start "TripCompiler 前端 :5173" cmd /k "%~dp0_frontend.bat"
+)
 ping 127.0.0.1 -n 7 >nul
 start "" http://127.0.0.1:5173
 

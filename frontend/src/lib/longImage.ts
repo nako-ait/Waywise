@@ -58,7 +58,7 @@ export function exportTripLongImage({ title, hotel, plan }: Options) {
   ctx.font = '400 20px system-ui, "Microsoft YaHei", sans-serif'
   const subtitle =
     `${hotel.name} 出发 · ${days.length} 天 · ${stopCount} 站 · ` +
-    `${meta?.modeLabel ?? ''}${meta?.dataSource === 'amap' ? ' · 高德实时' : ' · 离线估算'}`
+    `${meta?.modeLabel ?? ''}${meta?.dataSource === 'amap' ? ' · 高德路线' : ' · 离线估算'}`
   ctx.fillText(subtitle, PAD, 126)
 
   // 路线示意

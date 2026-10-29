@@ -31,7 +31,10 @@ export default function Timeline() {
 
   const meta = plan.solver
   const isAmap = meta?.dataSource === 'amap'
-  const returnMode = modeStyle(meta?.mode ?? currentMode)
+  const returnMode = modeStyle(
+    // 回程也用后端返回的 transportMode（分段混合决策后可能不是全局方式）
+    day?.returnLeg?.transportMode ?? day?.returnLeg?.mode ?? meta?.mode ?? currentMode,
+  )
   /** 导航用当前实际采用的交通方式（路书里的方式优先） */
   const activeMode = (meta?.mode as TravelMode) ?? currentMode
   const weights = useTripStore((s) => s.weights)
@@ -64,10 +67,10 @@ export default function Timeline() {
         )}
 
         <span
-          title={isAmap ? '距离与耗时来自高德 Web 服务实时接口' : '未配置高德 Web 服务 Key，按直线距离 × 绕行系数估算'}
+          title={isAmap ? '路线来自高德接口，缓存与费用估算以具体路段说明为准' : '未配置高德 Web 服务 Key，按直线距离 × 绕行系数估算'}
           className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500"
         >
-          {isAmap ? '高德实时' : '离线估算'}
+          {isAmap ? '高德路线' : '离线估算'}
         </span>
         {meta?.name && (
           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
@@ -118,7 +121,10 @@ export default function Timeline() {
 
           {day.stops.map((stop, index) => {
             const leg = stop.transportFromPrev
-            const style = modeStyle(leg?.mode ?? currentMode)
+            // ★ 分段混合交通：这一段的图标要跟着后端返回的 transportMode 变
+            //   （全局选地铁，800 米那段也可能是 🚶）
+            const legMode = leg?.transportMode ?? leg?.mode ?? currentMode
+            const style = modeStyle(legMode)
             // 「周一闭馆」提示：从 store 里的目的地取（后端模型没有星期维度，也不该有）
             const closedDays = destinations.find((item) => item.id === stop.id)?.closedWeekdays
             return (
@@ -126,7 +132,7 @@ export default function Timeline() {
                 {/* 交通段 */}
                 <div className="flex w-24 flex-col items-center justify-center gap-0.5">
                   <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] leading-4 text-slate-500">
-                    {style.label}
+                    {style.icon} {style.label}
                   </span>
                   <div className="text-[10px] font-medium text-slate-700">
                     {leg ? `${Math.round(leg.durationMin)} 分` : '—'}
@@ -135,6 +141,24 @@ export default function Timeline() {
                     {leg ? `${leg.distanceKm} km` : ''}
                     {leg?.approx ? ' *' : ''}
                   </div>
+                  {/* ⚡️ 系统自动寻优：这一段被系统换过交通方式（如驾车拥堵 → 步行） */}
+                  {leg?.isAutoOptimized ? (
+                    <span
+                      className="cursor-help rounded bg-amber-50 px-1 text-[10px] leading-4 text-amber-600"
+                      title={leg.optimizationReason ?? '系统根据实时路况自动调整了这段的交通方式'}
+                    >
+                      ⚡️ 已优化
+                    </span>
+                  ) : null}
+                  {/* 💡 只是建议：没有强制改方式，交给用户自己决定 */}
+                  {leg?.optimizationHint ? (
+                    <span
+                      className="cursor-help rounded bg-sky-50 px-1 text-[10px] leading-4 text-sky-600"
+                      title={leg.optimizationHint}
+                    >
+                      💡 建议打车
+                    </span>
+                  ) : null}
                   {/* 直达 / 换乘几次 —— 点开看具体坐哪几趟车 */}
                   <TransitOptions options={leg?.transitOptions} />
                 </div>
@@ -203,7 +227,7 @@ export default function Timeline() {
           <div className="flex shrink-0 items-stretch gap-2">
             <div className="flex w-24 flex-col items-center justify-center gap-0.5">
               <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] leading-4 text-slate-500">
-                {returnMode.label}
+                {returnMode.icon} {returnMode.label}
               </span>
               <div className="text-[10px] font-medium text-slate-700">回酒店</div>
               {/* 显示回程的真实时长/里程，而不是折线的坐标点数 */}
@@ -216,6 +240,25 @@ export default function Timeline() {
                     {day.returnLeg.distanceKm} km
                     {day.returnLeg.approx ? ' *' : ''}
                   </div>
+                  {/* 回程段同样可能出现自动寻优 */}
+                  {day.returnLeg.isAutoOptimized ? (
+                    <span
+                      className="cursor-help rounded bg-amber-50 px-1 text-[10px] leading-4 text-amber-600"
+                      title={
+                        day.returnLeg.optimizationReason ?? '系统根据实时路况自动调整了回程的交通方式'
+                      }
+                    >
+                      ⚡️ 已优化
+                    </span>
+                  ) : null}
+                  {day.returnLeg.optimizationHint ? (
+                    <span
+                      className="cursor-help rounded bg-sky-50 px-1 text-[10px] leading-4 text-sky-600"
+                      title={day.returnLeg.optimizationHint}
+                    >
+                      💡 建议打车
+                    </span>
+                  ) : null}
                   <TransitOptions options={day.returnLeg.transitOptions} />
                 </>
               ) : (

@@ -16,7 +16,14 @@ export default function ModeSwitch() {
   const { run, planning } = usePlanController()
 
   const overrideCount = Object.keys(legModes).length
-  const isMixed = overrideCount > 0
+  const actualModes = new Set(
+    plan?.days.flatMap((day) => [
+      ...day.stops.map((stop) => stop.transportFromPrev?.transportMode ?? stop.transportFromPrev?.mode),
+      day.returnLeg?.transportMode ?? day.returnLeg?.mode,
+    ]).filter((key): key is string => Boolean(key)) ?? [],
+  )
+  const autoMixed = actualModes.size > 1 || [...actualModes].some((key) => key !== mode)
+  const isMixed = overrideCount > 0 || autoMixed
 
   return (
     <div className="flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5">
@@ -26,7 +33,7 @@ export default function ModeSwitch() {
         return (
           <button
             key={key}
-            title={style.hint}
+            title={`${style.label}优先：${style.hint}；自动规划时会比较各段实际路线`}
             disabled={planning}
             onClick={() => {
               setMode(key) // 会顺带清空逐段覆盖
@@ -43,20 +50,20 @@ export default function ModeSwitch() {
 
       <button
         title={
-          isMixed
-            ? `逐段自定义了 ${overrideCount} 段，总时长/费用按每段自己的方式算`
-            : '在右侧时间轴里逐段改方式，就会变成混合出行'
+          overrideCount > 0
+            ? `已指定 ${overrideCount} 段，点击清除指定并按路线偏好重新选择交通`
+            : autoMixed ? '已根据实际路线、偏好和步行负担自动组合交通方式' : '在右侧时间轴里逐段改方式，就会变成混合出行'
         }
         disabled={!isMixed || planning}
         onClick={() => {
-          // 混合态下点它不动任何设置，只是确认"保留逐段"
+          if (overrideCount > 0) void run({ reselectTransport: true })
         }}
         className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-40 ${
           isMixed ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-400 hover:bg-white'
         }`}
       >
-        混合
-        {isMixed && <span className="ml-1 text-[10px] opacity-80">{overrideCount}</span>}
+        {overrideCount > 0 ? '恢复自动' : '混合'}
+        {overrideCount > 0 && <span className="ml-1 text-[10px] opacity-80">{overrideCount}</span>}
       </button>
     </div>
   )

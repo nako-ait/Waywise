@@ -8,7 +8,7 @@ import ModeSwitch from './ModeSwitch'
 const WEIGHT_META: Array<{ key: 'time' | 'convenience' | 'cost' | 'walking'; label: string; hint: string }> = [
   { key: 'time', label: '时间', hint: '少在路上耗' },
   { key: 'convenience', label: '换乘', hint: '少换乘少折腾' },
-  { key: 'cost', label: '花费', hint: '省门票与车费' },
+  { key: 'cost', label: '花费', hint: '减少交通费用' },
   { key: 'walking', label: '步行', hint: '少走路' },
 ]
 
@@ -25,6 +25,7 @@ export default function BottomBar() {
   const setDays = useTripStore((s) => s.setDays)
   const weights = useTripStore((s) => s.weights)
   const setWeight = useTripStore((s) => s.setWeight)
+  const legModes = useTripStore((s) => s.legModes)
   const { run, planning, prewarm } = usePlanController()
   const stale = usePlanStale()
 
@@ -33,6 +34,7 @@ export default function BottomBar() {
   const [toast, setToast] = useState<string | null>(null)
 
   const picked = useMemo(() => destinations.filter((d) => d.selected), [destinations])
+  const manualCount = Object.keys(legModes).filter((key) => key === '__return__' || picked.some((d) => d.id === key)).length
   const day = plan?.days?.[0]
   /** 多日路书优先显示「全行程合计」，单日就是当天 */
   const totals = plan?.solver?.totalStats ?? day?.stats
@@ -112,6 +114,11 @@ export default function BottomBar() {
               <span className="text-[12px] font-semibold text-slate-800">路线偏好</span>
               <span className="text-[10px] text-slate-400">往哪边拖，求解器就更在意哪边</span>
             </div>
+            <p className="mb-2 text-[10px] leading-4 text-slate-500">
+              {manualCount > 0
+                ? `有 ${manualCount} 段交通已手动指定。“重选交通”会恢复自动，再按偏好比较。`
+                : '自动路段会比较交通方式；综合评分不变时也可能沿用原方案。'}
+            </p>
             <div className="space-y-2">
               {WEIGHT_META.map(({ key, label, hint }) => (
                 <div key={key}>
@@ -151,14 +158,20 @@ export default function BottomBar() {
               <button
                 className="rounded-lg bg-slate-900 px-3 py-1.5 text-[11px] text-white hover:bg-slate-800 disabled:bg-slate-300"
                 onClick={() => {
-                  void run()
+                  void run({ reselectTransport: true })
                   setPrefsOpen(false)
                 }}
                 disabled={planning || picked.length === 0}
               >
-                按新偏好重算
+                按偏好重选交通
               </button>
             </div>
+            {manualCount > 0 && (
+              <button className="mt-2 w-full text-right text-[10px] text-slate-500 hover:text-slate-800 disabled:opacity-50"
+                disabled={planning || picked.length === 0} onClick={() => { void run(); setPrefsOpen(false) }}>
+                保留指定交通重算
+              </button>
+            )}
           </div>
         )}
       </div>

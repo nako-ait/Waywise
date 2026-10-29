@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
 import httpx
@@ -25,6 +26,8 @@ from .modes import ModeSpec, fare_for, get_mode, transfers_for, walk_km_for
 AMAP_BASE = "https://restapi.amap.com"
 SHANGHAI_CITYCODE = "021"
 HTTP_TIMEOUT = 8.0
+DRIVING_CACHE_SECONDS = 300
+ROUTING_DATA_VERSION = "vehicle-access-20261028"
 # 距离矩阵最多 100 个起点，留点余量
 MAX_ORIGINS_PER_CALL = 90
 
@@ -86,6 +89,54 @@ def _f(value: object, default: float = 0.0) -> float:
         return default
 
 
+def _poi_id_at(point: LatLng) -> str | None:
+    # 景观坐标可能在步道内，POI 标识能让导航正确匹配车辆出入口。
+    from .poi_store import load_pois
+    rounded = tuple(round(v, 5) for v in point)
+    return next((p.amapId for p in load_pois()
+                 if (round(p.lng, 5), round(p.lat, 5)) == rounded and p.amapId), None)
+
+
+def _location(value: object) -> LatLng | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        lng, lat = (float(v) for v in value.split(","))
+        return (lng, lat) if -180 <= lng <= 180 and -90 <= lat <= 90 else None
+    except ValueError:
+        return None
+
+
+async def _driving_access(client: httpx.AsyncClient, point: LatLng) -> tuple[LatLng, LatLng]:
+    """矩阵同样使用车辆出入口，避免排序仍沿用抓到绿道的旧坐标。"""
+    poi_id = _poi_id_at(point)
+    if not poi_id:
+        return point, point
+    key = cache.make_key("vehicle-access", {"id": poi_id, "version": ROUTING_DATA_VERSION})
+    cached = cache.get(key)
+    if cached:
+        return tuple(cached[0]), tuple(cached[1])
+    try:
+        response = await client.get(f"{AMAP_BASE}/v3/place/detail", params={
+            "id": poi_id, "extensions": "all", "key": _amap_key(),
+        })
+        response.raise_for_status()
+        data = response.json()
+        pois = data.get("pois") or []
+        if str(data.get("status")) != "1" or not pois:
+            return point, point
+        poi = next((p for p in pois if p.get("id") == poi_id), None)
+        if poi is None:
+            return point, point
+        entrance = _location(poi.get("entr_location"))
+        exit_point = _location(poi.get("exit_location"))
+        result = (exit_point or entrance or point, entrance or exit_point or point)
+        cache.set(key, result)
+        return result
+    except (httpx.HTTPError, ValueError, KeyError):
+        return point, point
+
+
 # --------------------------------------------------------------------------- #
 # 距离矩阵
 # --------------------------------------------------------------------------- #
@@ -108,10 +159,11 @@ class Matrix:
 
 
 async def _fetch_distance_column(
-    client: httpx.AsyncClient, points: list[LatLng], dest_index: int, dtype: int
+    client: httpx.AsyncClient, points: list[LatLng], dest_index: int, dtype: int,
+    destinations: list[LatLng] | None = None,
 ) -> dict[int, tuple[float, float]]:
     """取「所有起点 -> 第 dest_index 个点」的一列，返回 {起点下标: (公里, 分钟)}。"""
-    dest = points[dest_index]
+    dest = (destinations or points)[dest_index]
     result: dict[int, tuple[float, float]] = {}
     for chunk_start in range(0, len(points), MAX_ORIGINS_PER_CALL):
         chunk = list(enumerate(points))[chunk_start : chunk_start + MAX_ORIGINS_PER_CALL]
@@ -135,11 +187,14 @@ async def _fetch_distance_column(
 
 
 async def _raw_matrix(
-    client: httpx.AsyncClient, points: list[LatLng], dtype: int
+    client: httpx.AsyncClient, points: list[LatLng], dtype: int,
+    destinations: list[LatLng] | None = None,
 ) -> list[list[tuple[float, float]]] | None:
     """完整 N×N 原始矩阵（公里, 分钟），带 SQLite 缓存。失败返回 None 由调用方降级。"""
-    key = cache.make_key(f"dist-matrix-t{dtype}", _round_points(points))
-    cached = cache.get(key)
+    payload = {"origins": _round_points(points), "destinations": _round_points(destinations or points),
+               "version": ROUTING_DATA_VERSION} if dtype == 1 else _round_points(points)
+    key = cache.make_key(f"dist-matrix-t{dtype}", payload)
+    cached = cache.get(key, max_age_seconds=DRIVING_CACHE_SECONDS if dtype == 1 else None)
     if cached is not None:
         return [
             [tuple(cell) for cell in row]  # type: ignore[misc]
@@ -153,7 +208,7 @@ async def _raw_matrix(
 
         async def one(dest_index: int) -> None:
             async with semaphore:
-                column = await _fetch_distance_column(client, points, dest_index, dtype)
+                column = await _fetch_distance_column(client, points, dest_index, dtype, destinations)
             for origin_index, value in column.items():
                 matrix[origin_index][dest_index] = value
 
@@ -233,10 +288,12 @@ async def build_matrix(points: list[LatLng], mode: str) -> Matrix:
 
     walk_raw: list[list[tuple[float, float]]] | None = None
     drive_raw: list[list[tuple[float, float]]] | None = None
+    accesses = [(point, point) for point in points]
 
     if has_web_key() and n > 1:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            drive_raw = await _raw_matrix(client, points, 1)   # 驾车
+            accesses = await asyncio.gather(*[_driving_access(client, point) for point in points])
+            drive_raw = await _raw_matrix(client, [p[0] for p in accesses], 1, [p[1] for p in accesses])
             walk_raw = await _raw_matrix(client, points, 3)    # 步行
         if spec.key == "walk" and walk_raw is None:
             warnings.append(
@@ -271,6 +328,14 @@ async def build_matrix(points: list[LatLng], mode: str) -> Matrix:
             else:
                 km_road, dur_road = (drive_raw or offline)[i][j]
             minutes, km, cost, walk, transfer = derive_cell(spec, km_road, dur_road, straight_km)
+            if drive_raw is not None and spec.amap_direction == "driving":
+                walk = (haversine_km(points[i], accesses[i][0]) + haversine_km(accesses[j][1], points[j])) * 1.25
+                minutes += walk / 4.5 * 60
+            # 公交/地铁的"进出站代价"：地铁不是门到门的，除等车外还要下到站台、出站再走。
+            # 这笔固定开销**只加在矩阵里**用于排序决策，不加进展示用的耗时
+            # （展示走 leg_route 的真实结果，否则时间轴会凭空多出 10 分钟）。
+            if spec.access_penalty_min > 0:
+                minutes += spec.access_penalty_min
             durations[i][j] = round(minutes, 2)
             distances[i][j] = round(km, 3)
             costs[i][j] = round(cost, 2)
@@ -401,6 +466,19 @@ class LegRoute:
     transit_options: list[dict] | None = None
     # 当前采用那一条的可读摘要："步行 602m → 地铁8号线 → 地铁9号线"
     transit_label: str | None = None
+    # —— 单段交通自动寻优（见 planner._auto_optimize_legs）——
+    # 这一段是否是系统自动换了交通方式（不是用户选的）
+    is_auto_optimized: bool = False
+    # 换掉的原因（中文，直接展示给用户）
+    optimization_reason: str | None = None
+    # 只是"提示"、没有强制改方式（例如步行太久但打车明显更快）
+    optimization_hint: str | None = None
+    cost_source: str = "local_estimate"
+    cost_approx: bool = True
+    queried_at: str | None = None
+    cache_hit: bool = False
+    driving_min: float | None = None
+    access_walk_min: float | None = None
 
 
 def _polyline_from_steps(steps: list[dict]) -> list[LatLng]:
@@ -539,7 +617,8 @@ def select_transit_option(
       3. 全部方案都会按当量排序返回，所以「公交+地铁」的组合方案永远看得见，
          不会因为选了直达就把换乘方案藏起来。
     """
-    usable = [opt for opt in options if opt and (opt["rides"] or opt["walkKm"] > 0)]
+    # 只有步行、没有任何乘车段的响应不能冒充公交/地铁候选。
+    usable = [opt for opt in options if opt and opt["rides"]]
     if not usable:
         return None, []
 
@@ -600,7 +679,13 @@ async def _fetch_direction(
         }
         url = f"{AMAP_BASE}/v3/direction/transit/integrated"
     else:
-        params = common
+        params = dict(common)
+        if spec.amap_direction == "driving":
+            params.update({"extensions": "all", "strategy": 10})
+            if origin_id := _poi_id_at(a):
+                params["originid"] = origin_id
+            if destination_id := _poi_id_at(b):
+                params["destinationid"] = destination_id
         url = f"{AMAP_BASE}/v3/direction/{spec.amap_direction}"
 
     resp = await client.get(url, params=params)
@@ -633,6 +718,9 @@ async def _fetch_direction(
             # 去掉内部用的 polyline 字段后再回传（前端不需要几千个点）
             transit_options=[{k: v for k, v in opt.items() if k != "polyline"} for opt in ranked],
             transit_label=chosen["label"],
+            cost_source="amap_fare" if chosen["cost"] else "local_estimate",
+            cost_approx=not bool(chosen["cost"]),
+            queried_at=datetime.now(timezone.utc).isoformat(),
         )
 
     paths = route.get("paths") or []
@@ -641,16 +729,39 @@ async def _fetch_direction(
     p = paths[0]
     km = _f(p.get("distance")) / 1000.0
     path = _polyline_from_steps(p.get("steps") or [])
-    cost = _f(p.get("tolls")) if spec.key != "walk" else 0.0
-    cost = fare_for(spec, km) if spec.key in ("taxi", "drive") else cost + fare_for(spec, km)
+    duration = _f(p.get("duration"), -1) / 60.0
+    if duration < 0 or not math.isfinite(duration) or (km > 0 and duration <= 0):
+        return None
+    cost_source = "free"
+    cost_approx = False
+    cost = 0.0
+    walk = km
+    access_minutes = 0.0
+    if spec.amap_direction == "driving":
+        taxi_estimate = _f(route.get("taxi_cost"), -1)
+        if spec.key == "taxi" and taxi_estimate > 0 and math.isfinite(taxi_estimate):
+            cost, cost_source = taxi_estimate, "amap_taxi_estimate"
+        else:
+            cost, cost_source = fare_for(spec, km), "local_estimate"
+            if spec.key == "drive":
+                cost += _f(p.get("tolls"))
+        cost_approx = True
+        # 接驳步行按道路端点到景点的偏移估算，不能按驾车公里数乘比例。
+        walk = ((haversine_km(a, path[0]) + haversine_km(path[-1], b)) * 1.25
+                if path else walk_km_for(spec, km))
+        access_minutes = walk / 4.5 * 60
     return LegRoute(
-        duration_min=_f(p.get("duration")) / 60.0,
+        duration_min=duration + access_minutes,
         distance_km=km,
         cost=round(cost, 2),
-        walk_km=km if spec.key == "walk" else round(km * spec.walk_ratio, 3),
+        walk_km=round(walk, 3),
         polyline=path or [a, b],
         approx=not path,
         data_source="amap",
+        cost_source=cost_source, cost_approx=cost_approx,
+        queried_at=datetime.now(timezone.utc).isoformat(),
+        driving_min=duration if spec.amap_direction == "driving" else None,
+        access_walk_min=access_minutes if spec.amap_direction == "driving" else None,
     )
 
 
@@ -679,9 +790,14 @@ async def leg_route(
                 # 公交方案的选择依赖权重，所以权重也要进缓存键，
                 # 否则换个偏好会直接复用上一份"最优线路"
                 "strategy": _transit_strategy_for(weights) if spec.amap_direction == "transit" else 0,
+                # 同一 strategy 下仍会按完整权重挑候选，缓存必须区分这些偏好。
+                **({"weights": weights or {}} if spec.amap_direction == "transit" else {}),
+                **({"routingVersion": ROUTING_DATA_VERSION, "originId": _poi_id_at(a),
+                    "destinationId": _poi_id_at(b), "drivingStrategy": 10}
+                   if spec.amap_direction == "driving" else {}),
             },
         )
-        cached = cache.get(key)
+        cached = cache.get(key, max_age_seconds=DRIVING_CACHE_SECONDS if spec.amap_direction == "driving" else None)
         if cached:
             return LegRoute(
                 duration_min=cached["durationMin"],
@@ -694,6 +810,10 @@ async def leg_route(
                 transfers=int(cached.get("transfers", 0)),
                 transit_options=cached.get("transitOptions"),
                 transit_label=cached.get("transitLabel"),
+                cost_source=cached.get("costSource", "local_estimate"),
+                cost_approx=cached.get("costApprox", True), queried_at=cached.get("queriedAt"),
+                cache_hit=True, driving_min=cached.get("drivingMin"),
+                access_walk_min=cached.get("accessWalkMin"),
             )
         try:
             async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
@@ -712,6 +832,9 @@ async def leg_route(
                         "transfers": leg.transfers,
                         "transitOptions": leg.transit_options,
                         "transitLabel": leg.transit_label,
+                        "costSource": leg.cost_source, "costApprox": leg.cost_approx,
+                        "queriedAt": leg.queried_at, "drivingMin": leg.driving_min,
+                        "accessWalkMin": leg.access_walk_min,
                     },
                 )
                 return leg

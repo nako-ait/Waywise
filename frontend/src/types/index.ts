@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 路书编译师 —— 全局核心数据结构
  * 与后端 app/models.py 中的 Pydantic 模型保持一致（字段名一一对应，便于联调）。
  *
@@ -109,12 +109,26 @@ export interface TransportLeg {
   transfers?: number
   /** 折线是否为直线近似（离线估算时为 true） */
   approx?: boolean
-  /** amap = 高德实时，offline = 离线估算 */
+  /** amap = 高德路线，offline = 离线估算 */
   dataSource?: string
+  costSource?: string
+  costApprox?: boolean
+  queriedAt?: string | null
+  cacheHit?: boolean
+  drivingMin?: number | null
+  accessWalkMin?: number | null
   /** 公交/地铁的全部候选方案（最优在前，最多 3 条） */
   transitOptions?: TransitOption[] | null
   /** 当前采用方案的线路链摘要 */
   transitLabel?: string | null
+  /** 系统把这一段换成了别的交通方式（如「驾车拥堵 → 改成步行」） */
+  isAutoOptimized?: boolean
+  /** 为什么换：直接展示给用户的一句话 */
+  optimizationReason?: string | null
+  /** 只是建议、没有强制改（如「步行 35 分钟，打车只要 12 分钟」） */
+  optimizationHint?: string | null
+  /** 这一段的实际交通方式（分段混合交通决策的结果；可能与全局偏好不同） */
+  transportMode?: string | null
 }
 
 /** 路线中的一站 */
@@ -158,11 +172,12 @@ export interface PlanDay {
 
 /** 后端求解元信息，用于在界面上显示「这份路书是怎么来的」 */
 export interface PlanSolverMeta {
+  routingVersion?: string
   name: string
   objectiveMinutes?: number
   dataSource: string
   elapsedMs?: number
-  dropped?: Array<{ id: string; name: string; reason: string }>
+  dropped?: Array<{ id: string; name: string; reason: string; day?: string }>
   weights?: Weights
   mode?: string
   modeLabel?: string

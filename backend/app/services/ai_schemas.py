@@ -240,7 +240,7 @@ TURN_TOOL: dict = {
             "mode": {
                 "type": "string",
                 "enum": ["walk", "transit", "subway", "taxi", "drive"],
-                "description": "整体交通方式；用户说“地铁或打车”但没定，就别填，用 clarify 问一句",
+                "description": "用户明确指定时才填交通偏好；合理安排、少走路不代表公交。允许逐段混合交通。",
             },
             "weights": {
                 "type": "object",
@@ -289,7 +289,7 @@ TURN_SYSTEM_PROMPT = """你是「路书编译师」的行程助手，负责把�
 2. reply 最多 2 句、50 字以内：先说改什么，再说为什么（或下一步）。不要罗列参数名。
 3. **你没有的数据**：酒店星级/房价、天气、实时人流、门票与人均消费。用户问这些时，
    填 boundary（说明没有并给替代），不要编造。
-4. 用户同时给了多个交通方式（如“地铁或打车”）但没有明确取舍时，不要猜，用 clarify 反问一句。
+4. 用户没有明确指定方式时不要填 mode；合理安排、少走路不代表全程公交。多个方式可逐段比较，不要擅自写成全程单一方式。
 5. 用户给的数字要落成约束：预算 → budgetCap，路上时间 → transitCapMin（小时×60）。
 6. 不要输出经纬度、不要输出不存在的地点名；不确定的地点名就别加，用 clarify 问。
 7. 如果这句话不需要改路书（只是提问/闲聊），只填 reply，其它留空。
@@ -337,8 +337,8 @@ SEARCH_TOOL: dict = {
 PREVIEW_TOOL: dict = {
     "name": "preview_plan",
     "description": (
-        "用当前起点和给定地点试算一版路书，返回总费用、路上时间、每站时间与是否超出预算/时长上限。"
-        "用户提到预算、时间上限或“够不够”时，先用它算一遍再回答。"
+        "用当前起点和给定地点试算完整往返路书，返回含每天返程的交通时间、接驳步行、费用、换乘和实际方式。"
+        "默认同时比较自动混合交通与公共交通；必须传入将要提议的权重和时间设置，不能混用旧偏好。"
     ),
     "parameters": {
         "type": "object",
@@ -350,6 +350,10 @@ PREVIEW_TOOL: dict = {
             },
             "days": {"type": "integer"},
             "mode": {"type": "string", "enum": ["walk", "transit", "subway", "taxi", "drive"]},
+            "weights": TURN_TOOL["parameters"]["properties"]["weights"],
+            "dayStartTime": {"type": "string"},
+            "dayEndTime": {"type": "string"},
+            "compareTransport": {"type": "boolean", "description": "比较公共交通与自动混合交通，默认 true"},
             "budgetCap": {"type": "number"},
             "transitCapMin": {"type": "number"},
         },
@@ -370,6 +374,9 @@ AGENT_SYSTEM_PROMPT = """你是「路书编译师」的行程 agent。你的任�
 4. 缺关键信息（几天？哪个城市？）用 clarify 反问一句，一次只问一个。
 5. 我们没有的数据：酒店星级/实时房价、天气、实时人流、门票与人均消费。遇到这些用 boundary 说明，并给一个能做的替代，不要编数字。
 6. 用户同时给多个交通方式但没定取舍时，用 preview_plan 各算一遍，再推荐更合适的一个（说明理由）。
+7. 没有明确指定交通方式时，不要填 mode。合理安排、不要长距离步行不代表全程公交，应逐段比较公共交通、打车和短途步行。
+8. preview_plan 必须带上准备提议的新权重与时间。所有交通数字包含每天返回起点，说明是接驳步行、不含景点内游览。
+9. 当前只是待确认提案，使用“准备/试算”，不能说“已排好”；没有工具结果不能编费用、公里、分钟或宣称最优。
 
 回复规范：reply 最多 2 句、50 字以内；不要罗列参数名；不要 markdown。
 """

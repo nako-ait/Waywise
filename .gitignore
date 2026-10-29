@@ -17,6 +17,8 @@ backend/.env
 frontend/.env.local
 frontend/.env
 .env
+.env.*
+!.env.example
 
 # ---- 运行期数据 ----
 backend/data/*.db

@@ -13,6 +13,7 @@ import { usePlanController } from '@/hooks/usePlanController'
 import { uid } from '@/lib/id'
 import { setSearchCity } from '@/lib/amapSearch'
 import { usePlanStale } from '@/lib/routeOrder'
+import { needsTransportRefresh } from '@/lib/routeQuality'
 import { useTripStore } from '@/store/useTripStore'
 import type { TravelMode } from '@/types'
 
@@ -50,6 +51,7 @@ export default function PlanWorkspace() {
   const [hotelOpen, setHotelOpen] = useState(false)
   const [cityAddOpen, setCityAddOpen] = useState(false)
   const startedRef = useRef(false)
+  const checkedTrafficRef = useRef(false)
   const pendingOps = useRef<Record<string, Record<string, unknown>>>({})
 
   const hotel = useTripStore((s) => s.hotel)
@@ -62,7 +64,7 @@ export default function PlanWorkspace() {
 
   function applyOpsToStore(ops: Record<string, unknown>) {
     const addPlaces = ops.addPlaces as
-      | Array<{ name: string; lng: number; lat: number; stayMin?: number }>
+      | Array<{ name: string; lng: number; lat: number; stayMin?: number; openTime?: string; closeTime?: string; tags?: string[] }>
       | undefined
     if (addPlaces?.length) {
       addDestinations(
@@ -73,6 +75,9 @@ export default function PlanWorkspace() {
           source: 'ai' as const,
           selected: true,
           stayMin: item.stayMin ?? 60,
+          openTime: item.openTime,
+          closeTime: item.closeTime,
+          tags: item.tags,
         })),
       )
     }
@@ -180,6 +185,15 @@ export default function PlanWorkspace() {
     void handleSend(pendingPrompt)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingPrompt])
+
+  // 刷新时重算旧版本或过期的车辆路线，保留地点、偏好与逐段选择。
+  useEffect(() => {
+    if (checkedTrafficRef.current || !plan || planning || busy || pendingPrompt) return
+    checkedTrafficRef.current = true
+    if (needsTransportRefresh(plan) && buildPayload().destinations.length > 0) {
+      void run()
+    }
+  }, [plan, planning, busy, pendingPrompt, buildPayload, run])
 
   // 切城市时让在线搜索也按新城市过滤
   useEffect(() => {
