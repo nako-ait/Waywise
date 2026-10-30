@@ -13,6 +13,11 @@ cp backend/.env.example backend/.env
 ```
 
 在服务器上编辑 backend/.env，配置模型和高德 Web 服务密钥。
+也可在项目根目录执行 `python3 backend/scripts/configure_cloud_ai.py`：
+交互输入优云智算模型 API Key（不回显），自动设置官方接口和 deepseek-v4.1-flash 模型。
+工具保留已有的有效配置项，从模板重建注释以丢弃手动误粘贴的无效文本；
+更新前会在 backend/ 下备份原配置为 .env.backup-*，Linux 上备份和新文件权限均为 600。
+不要上传或分享配置文件及其备份。
 不要把真实密钥提交到 GitHub。模型平台的 Base URL 和模型 ID 必须以实际提供的信息为准。
 留空密钥时，后端使用离线和规则降级，可先验证服务启动。
 
