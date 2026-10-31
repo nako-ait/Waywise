@@ -50,6 +50,10 @@ curl -I http://127.0.0.1:8080/plan
 基础镜像从 Docker 官方在 AWS ECR Public 发布的仓库获取，避免依赖 Docker Hub 的直连可用性。
 参见 [Docker 官方说明](https://www.docker.com/blog/news-from-aws-reinvent-docker-official-images-on-amazon-ecr-public/)。
 此调整不需要修改服务器 Docker 配置。Python、Node 和 Nginx 的版本标签保持不变。
+
+前端构建默认通过 [npmmirror](https://npmmirror.com/) 下载 npm/pnpm 依赖，减少国内云服务器直连 npm 官方仓库超时的问题；保留锁定版本和完整性校验，并设置下载超时、重试和并发上限。该设置只在镜像构建时生效，不更改服务器全局 npm 配置。
+需要改用其他仓库时，可在项目根目录 `.env` 中设置 `NPM_REGISTRY=https://registry.npmjs.org`，再重新构建前端。
+若出现 `GET ...registry.npmjs.org... ETIMEDOUT` 且构建以非零状态退出，旧版容器通常仍在运行；刷新浏览器不会安装新版。拉取修复后重试构建即可，不需要重装系统或删除数据卷。
 后端不映射公网端口。Python 在容器内使用 3.12，不依赖 Ubuntu 自带的 Python 3.10。
 缓存使用命名卷 backend-data；首次启动会从镜像复制 POI 快照，后续启动保留缓存。
 更新 POI 快照需要单独同步到数据卷，重新构建镜像不会覆盖已有卷中的快照。

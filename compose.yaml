@@ -22,6 +22,7 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
       args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
         VITE_AMAP_JS_KEY: ${VITE_AMAP_JS_KEY:-}
     environment:
       AMAP_SECURITY_CODE: ${AMAP_SECURITY_CODE:-}
