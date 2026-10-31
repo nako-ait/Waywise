@@ -298,6 +298,19 @@ def _extract_ops(
         preview.append("加入 " + "、".join(item["name"] for item in adds))
         reply_parts.append("加入" + "、".join(item["name"] for item in adds))
 
+    # 改停留时长：在某个已有地点「停 X 分钟 / 待久一点 / 随便看看」
+    stay_minutes = nlp_rules._parse_stay_minutes(text)
+    if stay_minutes:
+        stay_targets = [name for name in used_names if name and name in text]
+        if stay_targets:
+            ops["stayChanges"] = [{"name": name, "stayMin": stay_minutes} for name in stay_targets]
+            preview.append("调整停留时长 " + "、".join(stay_targets))
+            reply_parts.append("调整停留时长")
+        elif adds:
+            # 新加的点直接把时长带上（「加个豫园，停两小时」）
+            for item in adds:
+                item["stayMin"] = stay_minutes
+
     if not ops:
         return None
 
@@ -335,6 +348,25 @@ def request_from_ops(base_req: Any, ops: dict[str, Any]) -> tuple[Any, list[str]
         )
         added_names.append(name)
 
+    # 停留时长调整：按名字匹配已有（或刚加入）的地点
+    stay_map: dict[str, int] = {}
+    for item in ops.get("stayChanges") or []:
+        name = str((item or {}).get("name") or "").strip()
+        value = (item or {}).get("stayMin")
+        try:
+            minutes = int(value)
+        except (TypeError, ValueError):
+            continue
+        if name and 5 <= minutes <= 600:
+            stay_map[name] = minutes
+    if stay_map:
+        def apply_stay(dest: Any) -> Any:
+            for name, minutes in stay_map.items():
+                if name and (name in dest.name or dest.name in name):
+                    return dest.model_copy(update={"stayMin": minutes})
+            return dest
+        kept = [apply_stay(dest) for dest in kept]
+
     days = int(ops.get("days") or base_req.days)
     mode = str(ops.get("mode") or base_req.mode)
     weights = base_req.weights.model_copy(update=(ops.get("weights") or {}))
@@ -369,6 +401,9 @@ async def apply_ops(base_req: Any, ops: dict[str, Any]) -> tuple[PlanResponse, l
         changes.append(f"＋{len(added_names)} 地点")
     if removed_real:
         changes.append(f"－{len(removed_real)} 地点")
+    stays = ops.get("stayChanges") or []
+    if stays:
+        changes.append(f"调整 {len(stays)} 处停留时长")
     if ops.get("mode"):
         changes.append(f"交通偏好改为{MODE_LABELS.get(str(ops['mode']), ops['mode'])}")
     if ops.get("weights"):
@@ -424,6 +459,19 @@ def _ops_from_arguments(args: dict, index: dict[str, dict]) -> dict[str, Any]:
     if removes:
         ops["removeNames"] = removes
 
+    stays: list[dict] = []
+    for item in args.get("stayChanges") or []:
+        name = str((item or {}).get("name") or "").strip()
+        value = (item or {}).get("stayMin")
+        try:
+            minutes = int(value)
+        except (TypeError, ValueError):
+            continue
+        if name and 5 <= minutes <= 600:
+            stays.append({"name": name, "stayMin": minutes})
+    if stays:
+        ops["stayChanges"] = stays
+
     if isinstance(args.get("days"), int) and 1 <= args["days"] <= 7:
         ops["days"] = args["days"]
     if args.get("mode") in MODE_LABELS:
@@ -456,6 +504,8 @@ def _preview_from_ops(ops: dict[str, Any]) -> list[str]:
         lines.append(f"加入 {item['name']}")
     if ops.get("removeNames"):
         lines.append("去掉 " + "、".join(ops["removeNames"]))
+    for item in ops.get("stayChanges") or []:
+        lines.append(f"「{item['name']}」停留改为 {item['stayMin']} 分钟")
     if ops.get("mode"):
         lines.append(f"交通偏好改为{MODE_LABELS[ops['mode']]}，逐段比较实际路线")
     if ops.get("weights"):

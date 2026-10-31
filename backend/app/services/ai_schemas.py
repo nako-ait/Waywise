@@ -236,6 +236,22 @@ TURN_TOOL: dict = {
                 "description": "要删掉的地点名字",
                 "items": {"type": "string"},
             },
+            "stayChanges": {
+                "type": "array",
+                "description": (
+                    "把已有地点的停留时长改成指定分钟数（「在豫园停两小时」→ [{name:'豫园·城隍庙', stayMin:120}]）。"
+                    "只调时长、不是加新点；加新点请用 addPlaces 并带上 stayMin。"
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "stayMin": {"type": "integer", "description": "停留分钟数，5~600"},
+                    },
+                    "required": ["name", "stayMin"],
+                    "additionalProperties": False,
+                },
+            },
             "days": {"type": "integer", "description": "行程天数 1~7"},
             "mode": {
                 "type": "string",
@@ -370,7 +386,9 @@ AGENT_SYSTEM_PROMPT = """你是「路书编译师」的行程 agent。你的任�
 工作方式：
 1. 需要地点时先调 search_pois，不要凭记忆写地名（也不要写经纬度）。
 2. 用户提到预算、路上时间、够不够、要不要打车时，先调 preview_plan 算一遍，用真实数字说话。
-3. 信息够了下结论：调 propose_changes 给出 ops（加/删地点、天数、方式、权重、时间、预算/时长上限）。
+3. 信息够了下结论：调 propose_changes 给出 ops（加/删地点、停留时长、天数、方式、权重、时间、预算/时长上限）。
+   用户要调整**已有地点**的停留时长（「停两小时」「待久一点」「多玩一会儿」）时用 stayChanges 指明地点和新时长，
+   不要当成加新点；新地点才用 addPlaces（带上 stayMin）。
 4. 缺关键信息（几天？哪个城市？）用 clarify 反问一句，一次只问一个。
 5. 我们没有的数据：酒店星级/实时房价、天气、实时人流、门票与人均消费。遇到这些用 boundary 说明，并给一个能做的替代，不要编数字。
 6. 用户同时给多个交通方式但没定取舍时，用 preview_plan 各算一遍，再推荐更合适的一个（说明理由）。
