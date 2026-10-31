@@ -17,10 +17,12 @@ def inspect_service(kind: str, port: int | None = None) -> int:
     try:
         with socket.create_connection(('127.0.0.1', port), timeout=1):
             pass
-    except ConnectionRefusedError:
-        return FREE
     except OSError:
-        return OCCUPIED
+        # 连接建立不起来（被拒绝或超时）说明该端口上没有可用的监听服务，视为空闲。
+        # 注意：个别机器上连空闲的本地端口表现为「超时」而不是「拒绝」，
+        # TimeoutError 同样属于 OSError，这里一并按空闲处理；
+        # 只有真正连上、但健康检查对不上的才算占用。
+        return FREE
     path = '/api/health' if kind == 'backend' else '/'
     try:
         opener = build_opener(ProxyHandler({}))
