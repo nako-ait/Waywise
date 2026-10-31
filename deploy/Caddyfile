@@ -1,0 +1,28 @@
+{
+	admin off
+}
+
+https://{$PUBLIC_IP} {
+	# Explicit ACME issuer/profile: never fall back to a private/self-signed CA.
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			profile shortlived
+			disable_tlsalpn_challenge
+		}
+	}
+
+	basic_auth bcrypt LushuDemo {
+		judge {$DEMO_PASSWORD_HASH}
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		-Server
+	}
+
+	reverse_proxy frontend:80 {
+		header_up -Authorization
+	}
+}

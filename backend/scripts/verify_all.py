@@ -29,6 +29,7 @@ SUITES: list[tuple[str, str, str]] = [
     ("test_taxi_data.py", "打车数据", "车辆出入口 / 接口费用 / 时效与缓存"),
     ("test_llm_probe.py", "模型连接", "思考模型输出额度 / 截断诊断 / 敏感内容不回显"),
     ("test_cloud_amap.py", "地图配置", "保留 AI 配置 / 安全密钥仅供服务器使用 / 错误输入不写文件"),
+    ("test_public_access.py", "公网配置", "公网 IP 校验 / 密码哈希 / 保留地图配置"),
 ]
 
 FAIL_TAIL_LINES = 18

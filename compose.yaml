@@ -38,5 +38,30 @@ services:
         max-size: 10m
         max-file: "3"
 
+  gateway:
+    image: public.ecr.aws/docker/library/caddy:2.11.7-alpine
+    profiles: [public]
+    environment:
+      PUBLIC_IP: ${PUBLIC_IP:-127.0.0.1}
+      DEMO_PASSWORD_HASH: ${DEMO_PASSWORD_HASH:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      frontend:
+        condition: service_started
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
 volumes:
   backend-data:
+  caddy-data:
+  caddy-config:

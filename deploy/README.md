@@ -3,6 +3,7 @@
 运行环境：Ubuntu 虚拟机、Docker Engine、Docker Compose v2。
 本配置先仅监听服务器本机 127.0.0.1:8080，不直接对公网开放。
 通过验收后，再配置 HTTPS、访问入口和调用额度保护供评委使用。
+评委公网 IP 入口的可选配置见 [PUBLIC_ACCESS.md](PUBLIC_ACCESS.md)。
 
 ## 准备配置
 
