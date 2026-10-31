@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 全局状态：Zustand + persist(localStorage)
  *
  * 设计要点：
@@ -219,6 +219,8 @@ export interface TripState {
   /** 首页 Hero 输入后带进工作台的初始语料 */
   pendingPrompt: string | null
   setPendingPrompt: (text: string | null) => void
+  /** 开始一份新路书：断开与旧路书的关联（工作台的聊天记录也随之切到新会话） */
+  startNewTrip: () => void
   /** 把当前草稿存成一份路书（返回记录） */
   saveTrip: (title?: string, group?: string) => TripRecord
   /** 打开一份已保存的路书（会替换当前草稿） */
@@ -598,6 +600,10 @@ export const useTripStore = create<TripState>()(
 
       // —— 1.1：多路书 + 本地账号 ——
       setPendingPrompt: (pendingPrompt) => set({ pendingPrompt }),
+
+      // 首页开始新路书（换城市 / 选推荐线路 / 一句话起手）时调用：
+      // activeTripId 置空后，工作台会把对话切到新的草稿会话
+      startNewTrip: () => set({ activeTripId: null }),
 
       saveTrip: (title, group) => {
         const state = get()

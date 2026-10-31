@@ -14,6 +14,7 @@ import { uid } from '@/lib/id'
 import { setSearchCity } from '@/lib/amapSearch'
 import { usePlanStale } from '@/lib/routeOrder'
 import { needsTransportRefresh } from '@/lib/routeQuality'
+import { clearChatHistory, DRAFT_CHAT_KEY, loadChatHistory, saveChatHistory } from '@/lib/chatHistory'
 import { useTripStore } from '@/store/useTripStore'
 import type { TravelMode } from '@/types'
 
@@ -24,6 +25,14 @@ import type { TravelMode } from '@/types'
  *   每句话 → 先出提案（要改什么），用户确认后才动路书；
  *   改动完回一行小字回执（+1 地点 / 更新 3 段交通 …）。
  */
+
+/**
+ * 有未处理提案时，整句输入视为「确认执行」/「取消」的自然语言说法。
+ * 只匹配短句，避免把「确认一下还有没有别的方案」这类新需求误判成确认。
+ */
+const CONFIRM_TEXT = /^(?:(?:好的|是的|是|对|好|行|可以|嗯|确认|同意|没问题|没毛病|就这么办|就这样|动手做|动手|执行|开始|搞|弄|改|做|安排)[，。！!、\s吧]*)+$/u
+const CANCEL_TEXT = /^(?:(?:算了|取消|不用了|不要了|不了|别改了|不执行|不确认|不弄了|换个说法|换个方案|再想想|重新想|重新说)[，。！!～~、\s吧]*)+$/u
+
 export default function PlanWorkspace() {
   const navigate = useNavigate()
   const { run, planning, buildPayload } = usePlanController()
@@ -46,13 +55,14 @@ export default function PlanWorkspace() {
   const trips = useTripStore((s) => s.trips)
   const activeTripId = useTripStore((s) => s.activeTripId)
 
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  // 对话按路书存档：已保存的路书用它的 id，未保存的新会话用草稿槽
+  const [chatKey, setChatKey] = useState<string>(() => activeTripId ?? DRAFT_CHAT_KEY)
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatHistory(activeTripId ?? DRAFT_CHAT_KEY))
   const [busy, setBusy] = useState(false)
   const [hotelOpen, setHotelOpen] = useState(false)
   const [cityAddOpen, setCityAddOpen] = useState(false)
   const startedRef = useRef(false)
   const checkedTrafficRef = useRef(false)
-  const pendingOps = useRef<Record<string, Record<string, unknown>>>({})
 
   const hotel = useTripStore((s) => s.hotel)
 
@@ -100,10 +110,37 @@ export default function PlanWorkspace() {
     const times = ops.times as { dayStartTime?: string; dayEndTime?: string } | undefined
     if (times?.dayStartTime) setOption('dayStartTime', times.dayStartTime)
     if (times?.dayEndTime) setOption('dayEndTime', times.dayEndTime)
+    const stayChanges = ops.stayChanges as Array<{ name: string; stayMin: number }> | undefined
+    if (stayChanges?.length) {
+      const all = useTripStore.getState().destinations
+      for (const change of stayChanges) {
+        const target = all.find(
+          (d) => d.name === change.name || d.name.includes(change.name) || change.name.includes(d.name),
+        )
+        if (target && typeof change.stayMin === 'number') {
+          updateDestination(target.id, { stayMin: Math.max(5, Math.min(change.stayMin, 600)) })
+        }
+      }
+    }
   }
 
-  /** 一轮对话：只出提案，等用户点确认 */
+  /** 一轮对话：只出提案，等用户点确认；也可以打字「确认 / 换个说法」直接处理提案 */
   async function handleSend(text: string) {
+    const trimmed = text.trim()
+    // 有待确认提案时，整句「确认 / 取消」直接执行或取消，不再发给大模型
+    const pendingMessage = [...messages].reverse().find((m) => m.pending && !m.resolved)
+    if (pendingMessage) {
+      if (CONFIRM_TEXT.test(trimmed)) {
+        setMessages((prev) => [...prev, { id: uid('m'), role: 'user', text: trimmed }])
+        await handleConfirm(pendingMessage.id)
+        return
+      }
+      if (CANCEL_TEXT.test(trimmed)) {
+        setMessages((prev) => [...prev, { id: uid('m'), role: 'user', text: trimmed }])
+        handleCancel(pendingMessage.id)
+        return
+      }
+    }
     setMessages((prev) => [...prev, { id: uid('m'), role: 'user', text }])
     setBusy(true)
     try {
@@ -116,7 +153,6 @@ export default function PlanWorkspace() {
         history: messages.slice(-6).map((m) => ({ role: m.role, text: m.text })),
       })
       const id = uid('m')
-      if (res.kind === 'act') pendingOps.current[id] = res.ops
       setMessages((prev) => [
         ...prev,
         {
@@ -125,6 +161,7 @@ export default function PlanWorkspace() {
           text: res.question ? `${res.reply}\n${res.question}` : res.reply,
           preview: res.preview,
           pending: res.kind === 'act',
+          ops: res.kind === 'act' ? res.ops : undefined,
           options: res.options,
           meta:
             res.source === 'llm'
@@ -143,7 +180,7 @@ export default function PlanWorkspace() {
 
   /** 确认后才真正改参数 + 编译 */
   async function handleConfirm(id: string) {
-    const ops = pendingOps.current[id]
+    const ops = messages.find((message) => message.id === id)?.ops
     if (!ops) return
     setBusy(true)
     try {
@@ -153,11 +190,16 @@ export default function PlanWorkspace() {
       setMessages((prev) =>
         prev.map((message) =>
           message.id === id
-            ? { ...message, pending: false, resolved: 'confirmed' as const, caption: res.caption }
+            ? {
+                ...message,
+                pending: false,
+                resolved: 'confirmed' as const,
+                caption: res.caption,
+                ops: undefined,
+              }
             : message,
         ),
       )
-      delete pendingOps.current[id]
     } catch (err) {
       const message = err instanceof Error ? err.message : '执行失败'
       showToast('error', message)
@@ -170,10 +212,11 @@ export default function PlanWorkspace() {
   function handleCancel(id: string) {
     setMessages((prev) =>
       prev.map((message) =>
-        message.id === id ? { ...message, pending: false, resolved: 'cancelled' as const } : message,
+        message.id === id
+          ? { ...message, pending: false, resolved: 'cancelled' as const, ops: undefined }
+          : message,
       ),
     )
-    delete pendingOps.current[id]
   }
 
   // 从首页带过来的第一句话，只跑一次
@@ -199,6 +242,22 @@ export default function PlanWorkspace() {
   useEffect(() => {
     setSearchCity(city.name)
   }, [city.name])
+
+  // 聊天记录落盘：按当前路书 key 保存（含待确认提案的 ops）
+  useEffect(() => {
+    saveChatHistory(chatKey, messages)
+  }, [chatKey, messages])
+
+  // 路书 id 变化（如首次保存分配新 id）：把当前对话迁到新 key，避免串台或丢失
+  useEffect(() => {
+    const next = activeTripId ?? DRAFT_CHAT_KEY
+    if (next === chatKey) return
+    saveChatHistory(next, loadChatHistory(chatKey))
+    clearChatHistory(chatKey)
+    setChatKey(next)
+    setMessages(loadChatHistory(next))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTripId])
 
   function handleSave() {
     const record = saveTrip()
@@ -266,7 +325,13 @@ export default function PlanWorkspace() {
                 ? ['2 天，用地铁', '少走路，6 点前回酒店', '别排太满']
                 : ['改成 3 天', '省点钱', '多拍照，别太赶']
             }
-            hint={planning ? '编译中…' : undefined}
+            hint={
+              planning
+                ? '编译中…'
+                : messages.some((m) => m.pending && !m.resolved)
+                  ? '有提案待确认：回复「确认」执行、「换个说法」取消'
+                  : undefined
+            }
           />
         </aside>
 

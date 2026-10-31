@@ -12,6 +12,8 @@ export interface ChatMessage {
   caption?: string
   /** 需要用户确认的提案 */
   pending?: boolean
+  /** 提案的执行参数（点「确认执行」时提交），随消息一起持久化 */
+  ops?: Record<string, unknown>
   /** 已经点过确认/取消 */
   resolved?: 'confirmed' | 'cancelled'
   /** 追问时的可点选项 */
@@ -28,6 +30,9 @@ interface Props {
   hint?: string
 }
 
+/** 输入框自动长高的最大行数，超过后在框内滚动 */
+const MAX_INPUT_LINES = 5
+
 /** 左栏常驻的 AI 助手：消息在上，输入框钉底 */
 export default function ChatDock({
   messages,
@@ -40,11 +45,27 @@ export default function ChatDock({
 }: Props) {
   const [text, setText] = useState('')
   const scrollerRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
 
   useEffect(() => {
     const el = scrollerRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [messages, busy])
+
+  // 输入框随内容自动长高（最多 MAX_INPUT_LINES 行），内容变短时自动缩回
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    const cs = window.getComputedStyle(el)
+    const lineHeight = parseFloat(cs.lineHeight) || 16
+    const padTop = parseFloat(cs.paddingTop) || 0
+    const padBottom = parseFloat(cs.paddingBottom) || 0
+    const border = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth)
+    const minH = lineHeight + padTop + padBottom + border
+    const maxH = MAX_INPUT_LINES * lineHeight + padTop + padBottom + border
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(Math.max(el.scrollHeight + border, minH), maxH)}px`
+  }, [text])
 
   function submit() {
     const value = text.trim()
@@ -180,14 +201,20 @@ export default function ChatDock({
       )}
 
       <div className="flex shrink-0 items-center gap-2 border-t border-slate-100 p-2">
-        <input
+        <textarea
+          ref={inputRef}
+          rows={1}
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') submit()
+            // Enter 直接发送；Shift+Enter 换行；中文输入法选字回车不触发发送
+            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault()
+              submit()
+            }
           }}
           placeholder="继续说，例如：把外滩去掉、改成地铁"
-          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none placeholder:text-slate-400 focus:border-slate-800"
+          className="min-w-0 flex-1 resize-none overflow-y-auto rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none placeholder:text-slate-400 focus:border-slate-800"
         />
         <button
           className="shrink-0 rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white hover:bg-slate-800 disabled:bg-slate-300"

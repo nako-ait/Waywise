@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 后端 API 客户端。
  * 统一处理：baseURL、超时、非 2xx 报错文案（把后端的 detail 透出来，方便现场排障）。
  */
@@ -181,7 +181,7 @@ export function aiTurn(
     history: Array<{ role: string; text: string }>
   },
 ): Promise<AiTurnResponse> {
-  return request<AiTurnResponse>('/api/ai/turn', { method: 'POST', body: JSON.stringify(payload) }, 60000)
+  return request<AiTurnResponse>('/api/ai/turn', { method: 'POST', body: JSON.stringify(payload) }, 120000)
 }
 
 /** 1.9：用户确认后才执行提案 */

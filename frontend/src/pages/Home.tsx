@@ -1,10 +1,12 @@
 import { useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CITIES, getCity, resolveRoutePois, type CityRoute } from '@/data/cities'
+import { clearChatHistory, DRAFT_CHAT_KEY } from '@/lib/chatHistory'
 import { useTripStore, type NewDestinationInput } from '@/store/useTripStore'
 
 /**
  * 首页：先选城市 → 上方出现该城市的推荐线路气泡 → 底部一句话起手。
+ * 开始新路书时断开旧路书关联并清掉草稿对话，聊天记录跟着路书走。
  */
 export default function Home() {
   const navigate = useNavigate()
@@ -18,6 +20,7 @@ export default function Home() {
   const clearDestinations = useTripStore((s) => s.clearDestinations)
   const addDestinations = useTripStore((s) => s.addDestinations)
   const showToast = useTripStore((s) => s.showToast)
+  const startNewTrip = useTripStore((s) => s.startNewTrip)
 
   const [prompt, setPrompt] = useState('')
   const city = getCity(cityId)
@@ -26,11 +29,15 @@ export default function Home() {
   function start() {
     const text = prompt.trim()
     if (!text) return
+    startNewTrip()
+    clearChatHistory(DRAFT_CHAT_KEY)
     setPendingPrompt(text)
     navigate('/plan')
   }
 
   function loadRoute(route: CityRoute) {
+    startNewTrip()
+    clearChatHistory(DRAFT_CHAT_KEY)
     clearDestinations()
     setHotel({ ...route.hotel, address: city.name })
     setMode(route.mode)
@@ -78,6 +85,8 @@ export default function Home() {
               onClick={() => {
                 if (item.id === city.id) return
                 setCity(item.id)
+                startNewTrip()
+                clearChatHistory(DRAFT_CHAT_KEY)
                 showToast('success', `已切换到${item.name}`)
               }}
             >

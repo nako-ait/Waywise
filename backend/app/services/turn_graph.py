@@ -52,10 +52,13 @@ async def _agent_node(state: TurnState) -> TurnState:
             weights=ctx["weights"],
             has_places=ctx["has_places"],
         )
+        # 把真实失败原因透出到前端小灰字，而不是只报一句笼统的"无 Key 或调用失败"
+        detail = " ".join(f"{type(exc).__name__}: {exc}".split())[:160]
+        proposal.warnings = [f"大模型未生效（{detail}）", *(proposal.warnings or [])]
         return {
             "proposal": proposal,
             "source": "rules",
-            "evidence": [{"tool": "fallback", "result": {"error": f"{type(exc).__name__}: {exc}"}}],
+            "evidence": [{"tool": "fallback", "result": {"error": detail}}],
         }
 
 
