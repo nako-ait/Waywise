@@ -27,6 +27,7 @@ SUITES: list[tuple[str, str, str]] = [
     ("test_transport_policy.py", "交通决策", "跨江长步行 / 手动方式 / 体力与时间窗"),
     ("test_agent_transport.py", "交通提案", "混合交通比较 / 往返统计 / 预览与执行一致"),
     ("test_taxi_data.py", "打车数据", "车辆出入口 / 接口费用 / 时效与缓存"),
+    ("test_llm_probe.py", "模型连接", "思考模型输出额度 / 截断诊断 / 敏感内容不回显"),
 ]
 
 FAIL_TAIL_LINES = 18

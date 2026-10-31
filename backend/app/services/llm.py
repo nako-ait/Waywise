@@ -199,21 +199,28 @@ async def call_text(
     }
     try:
         data, elapsed_ms = await _chat(payload, timeout)
-        text = (data["choices"][0]["message"].get("content") or "").strip()
+        choice = data["choices"][0]
+        message = choice["message"]
+        text = (message.get("content") or "").strip()
     except (httpx.HTTPError, LlmError, ValueError, KeyError, IndexError, TypeError) as exc:
         return LlmResult(ok=False, error=f"{type(exc).__name__}: {exc}")
 
+    debug = {
+        "provider": cfg.provider,
+        "model": cfg.model,
+        "elapsedMs": elapsed_ms,
+        "usage": data.get("usage"),
+        "finishReason": choice.get("finish_reason"),
+        "hasReasoning": bool(message.get("reasoning_content")),
+    }
     if not text:
-        return LlmResult(ok=False, error="模型返回了空内容")
+        error = ("模型输出额度已耗尽，尚未生成最终回答"
+                 if choice.get("finish_reason") == "length" else "模型返回了空内容")
+        return LlmResult(ok=False, error=error, debug=debug)
     return LlmResult(
         ok=True,
         text=text,
-        debug={
-            "provider": cfg.provider,
-            "model": cfg.model,
-            "elapsedMs": elapsed_ms,
-            "usage": data.get("usage"),
-        },
+        debug=debug,
     )
 
 
@@ -222,7 +229,10 @@ async def probe() -> dict:
     cfg = current_config()
     if cfg is None:
         return {"configured": False, "provider": settings.llm_provider, "ok": False}
-    result = await call_text("你是一个测试助手。", "只回复两个字：可用", timeout=15, max_tokens=10)
+    # Thinking tokens may share the completion budget. Ten tokens can be exhausted
+    # before any final content is emitted, so do not use a two-word answer's size
+    # as the entire generation budget. Reasoning-only output is still a failure.
+    result = await call_text("你是一个测试助手。", "只回复两个字：可用", timeout=15, max_tokens=1024)
     return {
         "configured": True,
         "provider": cfg.provider,
