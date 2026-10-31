@@ -5,9 +5,9 @@ import ShareActions from './ShareActions'
 import { useTripStore } from '@/store/useTripStore'
 
 const NAV = [
-  { to: '/', label: '首页' },
+  { to: '/', label: '探索' },
   { to: '/plan', label: '工作台' },
-  { to: '/me', label: '个人' },
+  { to: '/me', label: '我的行程' },
 ]
 
 /** 全局大导航：所有页面常驻（首页 / 工作台 / 个人），右侧放后端状态、分享与导入 */
@@ -29,39 +29,38 @@ export default function AppNav() {
 
   const isActive = (to: string) =>
     to === '/' ? location.pathname === '/' : location.pathname.startsWith(to)
+  const isHome = location.pathname === '/'
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-6 border-b border-slate-200 bg-white px-6">
-      <Link to="/" className="flex items-baseline gap-2">
-        <span className="text-[15px] font-bold tracking-tight text-slate-900">路书编译师</span>
-        <span className="text-[11px] text-slate-400">TripCompiler · 上海</span>
+    <header className={`waywise-nav ${isHome ? 'waywise-nav--home' : ''}`}>
+      <Link to="/" className="waywise-wordmark" aria-label="Waywise 首页">
+        <svg width="34" height="24" viewBox="0 0 34 24" fill="none" aria-hidden="true"><path d="M2 7 9 20 17 4 25 20 32 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        <span>Waywise</span>
       </Link>
 
-      <nav className="flex items-center gap-1">
+      <nav className="waywise-nav-links" aria-label="主导航">
         {NAV.map((item) => (
           <Link
             key={item.to}
             to={item.to}
-            className={`rounded-lg px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
-              isActive(item.to)
-                ? 'bg-slate-900 text-white'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
+            className={isActive(item.to) ? 'is-active' : ''}
+            aria-current={isActive(item.to) ? 'page' : undefined}
           >
             {item.label}
           </Link>
         ))}
       </nav>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="waywise-nav-actions">
+        {!isHome && <>
         <button
           onClick={check}
           title={
             health === 'ok'
-              ? '后端正常（点一下重新检测）'
+              ? '服务连接正常，点击重新检查'
               : health === 'checking'
-                ? '正在检测后端…'
-                : '连不上后端：确认 backend 已在 8000 端口启动（点一下重试）'
+                ? '正在检查服务连接…'
+                : '服务暂不可用，点击重试'
           }
           className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] ${
             health === 'ok'
@@ -76,17 +75,19 @@ export default function AppNav() {
               health === 'ok' ? 'bg-emerald-500' : health === 'checking' ? 'bg-slate-300' : 'bg-red-500'
             }`}
           />
-          {health === 'ok' ? '后端正常' : health === 'checking' ? '检测中' : '后端未连接'}
+          {health === 'ok' ? '已连接' : health === 'checking' ? '连接中' : '连接中断'}
         </button>
         <ShareActions />
+        </>}
         <Link
           to="/me"
-          className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] text-slate-500 hover:bg-slate-100"
+          className="waywise-profile-link"
+          aria-label={profile ? `${profile.nickname}的个人资料` : '个人资料与已保存行程'}
         >
           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[10px] text-white">
             {(profile?.nickname ?? '未').slice(0, 1)}
           </span>
-          {profile ? profile.nickname : '未登录'}
+          <span className="waywise-profile-name">{profile ? profile.nickname : '我的'}</span>
         </Link>
       </div>
     </header>

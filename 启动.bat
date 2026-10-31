@@ -1,10 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title 路书编译师 TripCompiler 启动器
+title Waywise 启动器
 
 echo ==========================================================
-echo   路书编译师 TripCompiler  —— 一键启动
+echo   Waywise  —— 一键启动
 echo   后端 http://127.0.0.1:8000    前端 http://127.0.0.1:5173
 echo ==========================================================
 echo.
@@ -48,7 +48,7 @@ if errorlevel 20 (
     exit /b 1
 )
 if errorlevel 10 (
-    start "TripCompiler 后端 :8000" cmd /k "%~dp0_backend.bat"
+    start "Waywise 后端 :8000" cmd /k "%~dp0_backend.bat"
 )
 ping 127.0.0.1 -n 5 >nul
 "%~dp0backend\.venv\Scripts\python.exe" "%~dp0backend\scripts\check_service.py" frontend
@@ -58,7 +58,7 @@ if errorlevel 20 (
     exit /b 1
 )
 if errorlevel 10 (
-    start "TripCompiler 前端 :5173" cmd /k "%~dp0_frontend.bat"
+    start "Waywise 前端 :5173" cmd /k "%~dp0_frontend.bat"
 )
 ping 127.0.0.1 -n 7 >nul
 start "" http://127.0.0.1:5173

@@ -165,7 +165,7 @@ export default function AiPanel() {
         onClick={() => setOpen((v) => !v)}
       >
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-          AI 路书助手
+          Waywise AI 助手
           {source && (
             <span className="rounded bg-slate-900 px-1.5 py-0.5 text-[10px] font-normal text-white">
               {SOURCE_LABEL[source] ?? source}

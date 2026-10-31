@@ -22,9 +22,9 @@ from .routers import ai, health, isochrone, plan, poi, share
 from .services import keyring
 
 app = FastAPI(
-    title="路书编译师 TripCompiler API",
+    title="Waywise API",
     version=__version__,
-    description="以酒店为固定起点的多日出行路线编译服务（上海）",
+    description="以固定起点规划多城市、多日行程的路线编译服务",
 )
 
 # 前端 Vite 开发服务器跨域访问
@@ -69,7 +69,7 @@ app.include_router(share.router, prefix="/api")
 @app.get("/")
 def root() -> dict:
     return {
-        "name": "TripCompiler API",
+        "name": "Waywise API",
         "version": __version__,
         "docs": "/docs",
         "modules": {

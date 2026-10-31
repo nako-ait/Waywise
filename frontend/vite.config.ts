@@ -2,7 +2,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// 路书编译师 —— Vite 配置
+// Waywise —— Vite 配置
 // 关键点：
 //  1) 路径别名 @ -> src，便于模块化引用
 //  2) /api 代理到 FastAPI（模块 2 起使用，先配好免得到时候再改）

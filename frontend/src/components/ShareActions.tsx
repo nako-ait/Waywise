@@ -113,7 +113,7 @@ export default function ShareActions() {
 
   return (
     <>
-      <div className="flex items-center gap-1.5">
+      <div className="waywise-share-actions flex items-center gap-1.5">
         <button type="button" className={buttonClass} onClick={() => void openShare()} title="把当前行程生成 6 位口令">
           <ShareIcon />
           分享行程

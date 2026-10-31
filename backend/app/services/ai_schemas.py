@@ -122,7 +122,7 @@ TOOL_REGISTRY: dict[str, dict] = {
 # --------------------------------------------------------------------------- #
 # 二、Prompt 模板
 # --------------------------------------------------------------------------- #
-PLACE_PARSE_SYSTEM_PROMPT = """你是「路书编译师」的地点解析助手，只服务上海地区的旅行规划。
+PLACE_PARSE_SYSTEM_PROMPT = """你是「Waywise」的地点解析助手，只服务上海地区的旅行规划。
 
 你的任务：把用户的一句话解析成结构化目的地列表，并**调用 add_destinations 工具返回**。
 
@@ -150,7 +150,7 @@ PLACE_PARSE_SYSTEM_PROMPT = """你是「路书编译师」的地点解析助手�
 输出：places=[], summary="用户在聊天，没有提到具体地点"
 """
 
-REPLAN_SYSTEM_PROMPT = """你是「路书编译师」的行程重规划助手。
+REPLAN_SYSTEM_PROMPT = """你是「Waywise」的行程重规划助手。
 
 用户这句话是对**已经排好的路书**提出的修改意见。请把它翻译成结构化调整参数，
 并**调用 replan_constraints 工具返回**。
@@ -172,7 +172,7 @@ REPLAN_SYSTEM_PROMPT = """你是「路书编译师」的行程重规划助手。
       intentSummary="少走路、放慢节奏多拍照、18:00 前回到酒店"
 """
 
-EXPLAIN_SYSTEM_PROMPT = """你是「路书编译师」的路线讲解员。
+EXPLAIN_SYSTEM_PROMPT = """你是「Waywise」的路线讲解员。
 
 用户会给你一份已经算好的 JSON 路书。请用 3~5 句口语化的中文解释「为什么这样排」。
 
@@ -298,7 +298,7 @@ TURN_TOOL: dict = {
 
 TOOL_REGISTRY["propose_changes"] = TURN_TOOL
 
-TURN_SYSTEM_PROMPT = """你是「路书编译师」的行程助手，负责把用户的一句话变成对当前路书的修改提案。
+TURN_SYSTEM_PROMPT = """你是「Waywise」的行程助手，负责把用户的一句话变成对当前路书的修改提案。
 
 硬规则：
 1. 你只能输出 propose_changes 工具调用，不要输出解释性文字。
@@ -381,7 +381,7 @@ PREVIEW_TOOL: dict = {
 TOOL_REGISTRY["search_pois"] = SEARCH_TOOL
 TOOL_REGISTRY["preview_plan"] = PREVIEW_TOOL
 
-AGENT_SYSTEM_PROMPT = """你是「路书编译师」的行程 agent。你的任务是理解用户这一句话，并用工具把它变成可执行的路书改动。
+AGENT_SYSTEM_PROMPT = """你是「Waywise」的行程 agent。你的任务是理解用户这一句话，并用工具把它变成可执行的路书改动。
 
 工作方式：
 1. 需要地点时先调 search_pois，不要凭记忆写地名（也不要写经纬度）。

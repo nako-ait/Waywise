@@ -1,5 +1,5 @@
 /**
- * 路书编译师 —— 全局核心数据结构
+ * Waywise —— 全局核心数据结构
  * 与后端 app/models.py 中的 Pydantic 模型保持一致（字段名一一对应，便于联调）。
  *
  * ⚠️ 坐标约定：全项目统一使用 GCJ-02（火星坐标系 / 高德坐标系）。
@@ -367,6 +367,7 @@ export type SharedDestination = Omit<Destination, 'id'> & { id?: string }
 
 /** POST /api/share 的 trip_data：一份行程的完整"输入态" */
 export interface SharedTripData {
+  cityId?: string
   version?: number
   createdAt?: string
   hotel: Pick<Hotel, 'name' | 'lng' | 'lat'> & { address?: string }

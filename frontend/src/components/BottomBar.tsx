@@ -67,7 +67,7 @@ export default function BottomBar() {
   }
 
   return (
-    <footer className="relative flex h-16 shrink-0 items-center gap-4 border-t border-slate-200 bg-white px-4">
+    <footer className="waywise-bottom-bar relative flex h-16 shrink-0 items-center gap-4 border-t border-slate-200 bg-white px-4">
       <ModeSwitch />
 
       {/* 天数：意图卡删掉之后，天数收到这里 */}
@@ -91,7 +91,7 @@ export default function BottomBar() {
       </div>
 
       {/* 路线偏好（原来的意图卡搬到这里，点开才展开） */}
-      <div className="relative">
+      <div className="waywise-preferences relative">
         <button
           className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] transition-colors ${
             prefsOpen
@@ -109,7 +109,7 @@ export default function BottomBar() {
         </button>
 
         {prefsOpen && (
-          <div className="absolute bottom-full left-0 z-30 mb-2 w-[320px] rounded-xl border border-amber-200 bg-white p-3 shadow-[0_20px_44px_-24px_rgba(15,23,42,.45)]">
+          <div className="waywise-preferences-panel absolute bottom-full left-0 z-30 mb-2 w-[320px] rounded-xl border border-amber-200 bg-white p-3 shadow-[0_20px_44px_-24px_rgba(15,23,42,.45)]">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-[12px] font-semibold text-slate-800">路线偏好</span>
               <span className="text-[10px] text-slate-400">往哪边拖，求解器就更在意哪边</span>

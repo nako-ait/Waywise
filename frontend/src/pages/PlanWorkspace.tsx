@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { aiApply, aiTurn } from '@/api/client'
 import AddStopDialog from '@/components/AddStopDialog'
 import ChatDock, { type ChatMessage } from '@/components/ChatDock'
@@ -16,6 +16,7 @@ import { usePlanStale } from '@/lib/routeOrder'
 import { needsTransportRefresh } from '@/lib/routeQuality'
 import { clearChatHistory, DRAFT_CHAT_KEY, loadChatHistory, saveChatHistory } from '@/lib/chatHistory'
 import { useTripStore } from '@/store/useTripStore'
+import { getMap } from '@/lib/mapInstance'
 import type { TravelMode } from '@/types'
 
 /**
@@ -35,6 +36,9 @@ const CANCEL_TEXT = /^(?:(?:算了|取消|不用了|不要了|不了|别改了|�
 
 export default function PlanWorkspace() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const preset = location.state as { presetName?: string; compilePreset?: boolean } | null
+  const presetStarted = useRef(false)
   const { run, planning, buildPayload } = usePlanController()
   const stale = usePlanStale()
   const plan = useTripStore((s) => s.plan)
@@ -61,12 +65,22 @@ export default function PlanWorkspace() {
   const [busy, setBusy] = useState(false)
   const [hotelOpen, setHotelOpen] = useState(false)
   const [cityAddOpen, setCityAddOpen] = useState(false)
+  const [mobilePanel, setMobilePanel] = useState<'map' | 'chat' | 'itinerary'>('map')
   const startedRef = useRef(false)
   const checkedTrafficRef = useRef(false)
 
+  useEffect(() => {
+    if (mobilePanel !== 'map') return
+    const frame = requestAnimationFrame(() => {
+      getMap()?.resize?.()
+      window.dispatchEvent(new Event('resize'))
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [mobilePanel])
+
   const hotel = useTripStore((s) => s.hotel)
 
-  const title = trips.find((trip) => trip.id === activeTripId)?.title ?? '未命名路书'
+  const title = trips.find((trip) => trip.id === activeTripId)?.title ?? preset?.presetName ?? '未命名路书'
 
   function pushAi(text: string, meta?: string) {
     setMessages((prev) => [...prev, { id: uid('m'), role: 'ai', text, meta }])
@@ -221,6 +235,15 @@ export default function PlanWorkspace() {
 
   // 从首页带过来的第一句话，只跑一次
   useEffect(() => {
+    if (!preset?.compilePreset || presetStarted.current) return
+    presetStarted.current = true
+    checkedTrafficRef.current = true
+    // Remove the one-shot flag before starting; refresh must not submit again.
+    navigate('/plan', { replace: true, state: { presetName: preset.presetName } })
+    if (!useTripStore.getState().planning) void run()
+  }, [preset?.compilePreset, preset?.presetName, navigate, run])
+
+  useEffect(() => {
     if (startedRef.current) return
     if (!pendingPrompt) return
     startedRef.current = true
@@ -260,7 +283,7 @@ export default function PlanWorkspace() {
   }, [activeTripId])
 
   function handleSave() {
-    const record = saveTrip()
+    const record = saveTrip(title === '未命名路书' ? undefined : title)
     showToast('success', `已保存「${record.title}」到「${record.group}」`)
   }
 
@@ -285,7 +308,7 @@ export default function PlanWorkspace() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-slate-100">
+    <div className="waywise-workspace flex h-full flex-col bg-slate-100" data-mobile-panel={mobilePanel}>
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4">
         <span className="text-sm font-semibold text-slate-900">{title}</span>
         <span className="rounded bg-slate-900 px-1.5 py-0.5 text-[10px] text-white">{city.name}</span>
@@ -300,7 +323,7 @@ export default function PlanWorkspace() {
             className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] text-slate-600 hover:bg-slate-50"
             onClick={() => navigate('/')}
           >
-            换城市
+            探索路线
           </button>
           <button
             className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] text-slate-600 hover:bg-slate-50"
@@ -311,9 +334,12 @@ export default function PlanWorkspace() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="waywise-workspace-tabs" aria-label="工作台面板">
+        {([['map', '地图'], ['chat', 'AI 助手'], ['itinerary', '行程']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mobilePanel === value} onClick={() => setMobilePanel(value)}>{label}</button>)}
+      </div>
+      <div className="waywise-workspace-panels flex min-h-0 flex-1">
         {/* 左栏：整栏给 AI 助手 */}
-        <aside className="flex w-[380px] shrink-0 flex-col border-r border-slate-200 bg-white">
+        <aside data-panel="chat" className="waywise-workspace-chat flex w-[380px] shrink-0 flex-col border-r border-slate-200 bg-white">
           <ChatDock
             messages={messages}
             busy={busy}
@@ -336,7 +362,7 @@ export default function PlanWorkspace() {
         </aside>
 
         {/* 中间：地图（左上角悬浮搜索 / 城市地标） */}
-        <section className="relative min-w-0 flex-1">
+        <section data-panel="map" className="waywise-workspace-map relative min-w-0 flex-1">
           <MapView />
 
           <div className="absolute left-3 top-3 z-20 w-[320px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_18px_40px_-28px_rgba(15,23,42,.6)]">
@@ -374,13 +400,13 @@ export default function PlanWorkspace() {
         </section>
 
         {/* 右栏：出发酒店 + 竖排路书 */}
-        <aside className="flex w-[340px] shrink-0 flex-col border-l border-slate-200 bg-white">
+        <aside data-panel="itinerary" className="waywise-workspace-itinerary flex w-[340px] shrink-0 flex-col border-l border-slate-200 bg-white">
           <button
             className="flex w-full shrink-0 items-center gap-2 border-b border-slate-200 px-3 py-2 text-left hover:bg-slate-50"
             onClick={() => setHotelOpen((value) => !value)}
           >
             <span className="h-2.5 w-2.5 rounded-[3px] bg-[#1d4ed8]" />
-            <span className="text-[11.5px] font-medium text-slate-700">出发酒店</span>
+            <span className="text-[11.5px] font-medium text-slate-700">出发地点</span>
             <span className="min-w-0 truncate text-[11px] text-slate-500">{hotel.name}</span>
             <span className="ml-auto shrink-0 text-[10px] text-slate-400">
               {hotelOpen ? '收起' : '更换'}

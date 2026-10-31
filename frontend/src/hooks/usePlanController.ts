@@ -7,6 +7,9 @@ import { planRoute, prewarmPlan } from '@/api/client'
 import { useTripStore } from '@/store/useTripStore'
 import type { PlanRequest } from '@/types'
 
+// Across workspace mounts, only the newest calculation owns the result/status.
+let latestRequest = 0
+
 /** 每次读取最新状态；重选交通是明确操作，普通重算仍保留逐段指定。 */
 export function buildPlanPayload(options?: { reselectTransport?: boolean }): PlanRequest {
   if (options?.reselectTransport) {
@@ -45,19 +48,21 @@ export function usePlanController() {
       return
     }
     const requestedSignature = useTripStore.getState().currentSignature()
+    const requestId = ++latestRequest
     setPlanning(true)
     setPlanError(null)
     try {
       const plan = await planRoute(payload)
+      if (requestId !== latestRequest) return
       if (requestedSignature === useTripStore.getState().currentSignature()) {
         setPlan(plan)
       } else {
         setPlanError('偏好或路线已再次变化，请按当前设置重新编译')
       }
     } catch (err) {
-      setPlanError(err instanceof Error ? err.message : '编译失败')
+      if (requestId === latestRequest) setPlanError(err instanceof Error ? err.message : '编译失败')
     } finally {
-      setPlanning(false)
+      if (requestId === latestRequest) setPlanning(false)
     }
   }, [buildPayload, setPlan, setPlanError, setPlanning])
 

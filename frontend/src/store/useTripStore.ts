@@ -22,7 +22,7 @@ import type {
   Weights,
 } from '@/types'
 import { DEFAULT_WEIGHTS } from '@/types'
-import { getCity } from '@/data/cities'
+import { CITIES, getCity } from '@/data/cities'
 import { uid } from '@/lib/id'
 import { haversineM } from '@/lib/geo'
 
@@ -373,6 +373,7 @@ function normalizeLegModes(raw: unknown): Record<string, TravelMode> {
 export function snapshotTrip(state: TripState): SharedTripData {
   return {
     version: 1,
+    cityId: state.cityId,
     createdAt: new Date().toISOString(),
     hotel: {
       name: state.hotel.name,
@@ -496,6 +497,11 @@ export const useTripStore = create<TripState>()(
           planError: null,
           activeDay: 0,
           legModes: {},
+          selectedLeg: null,
+          isochrone: null,
+          isochroneVisible: false,
+          aiExplain: null,
+          pendingPrompt: null,
           days: 1,
           hotel: { name: city.hotel.name, lng: city.hotel.lng, lat: city.hotel.lat, address: city.name },
           hotelConfirmed: true,
@@ -569,7 +575,13 @@ export const useTripStore = create<TripState>()(
       setFullTripState: (data) => {
         const hotel = normalizeHotel(data?.hotel) ?? get().hotel
         const destinations = normalizeDestinations(data?.destinations)
+        // Older saved/shared journeys predate cityId. Recover their city from
+        // the origin so opening a Shanghai journey after Hangzhou stays correct.
+        const nearest = [...CITIES].sort((a, b) => haversineM(hotel, a.center) - haversineM(hotel, b.center))[0]
+        const cityId = CITIES.find((city) => city.id === data?.cityId)?.id
+          ?? (nearest && haversineM(hotel, nearest.center) < 100_000 ? nearest.id : get().cityId)
         set({
+          cityId,
           hotel,
           hotelConfirmed: true,
           destinations,

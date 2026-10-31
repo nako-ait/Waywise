@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { loadAMap, searchPoi } from '@/lib/amap'
 import { getAMap, getMap, panTo } from '@/lib/mapInstance'
 import { useTripStore } from '@/store/useTripStore'
+import { getCity } from '@/data/cities'
 import type { PoiPreset } from '@/types'
 
 /** 常见起点快捷词，演示时一键搜出候选酒店 */
@@ -13,6 +14,8 @@ const QUICK_KEYWORDS = ['和平饭店', '上海外滩', '静安寺 酒店', '陆
  * - 通过高德 PlaceSearch（城市限定上海）搜索替换
  */
 export default function HotelPanel() {
+  const cityId = useTripStore((s) => s.cityId)
+  const city = getCity(cityId)
   const hotel = useTripStore((s) => s.hotel)
   const hotelConfirmed = useTripStore((s) => s.hotelConfirmed)
   const setHotel = useTripStore((s) => s.setHotel)
@@ -29,9 +32,9 @@ export default function HotelPanel() {
     setMessage(null)
     try {
       const AMap = getAMap() || (await loadAMap())
-      const list = await searchPoi(AMap, q, '上海', 8)
+      const list = await searchPoi(AMap, q, city.name, 8)
       setResults(list)
-      if (!list.length) setMessage('没有搜到结果，换个关键词试试（如「外滩」「静安寺」）')
+      if (!list.length) setMessage(`在${city.name}没有搜到结果，换个关键词试试`)
     } catch (err) {
       setMessage(
         err instanceof Error && err.message === 'MISSING_AMAP_KEY'
@@ -60,7 +63,7 @@ export default function HotelPanel() {
     }
     const c = map.getCenter()
     setHotel({
-      name: '地图中心选定的酒店',
+      name: '地图中心选定的起点',
       lng: c.getLng(),
       lat: c.getLat(),
       address: '',
@@ -73,7 +76,7 @@ export default function HotelPanel() {
       <div className="mb-2 flex items-center justify-between">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-hotel" />
-          出发酒店
+          出发地点
           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal text-slate-500">
             固定起点
           </span>

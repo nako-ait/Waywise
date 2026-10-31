@@ -77,7 +77,7 @@ export default function ChatDock({
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white">
       <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-3 py-2">
-        <span className="text-[12px] font-semibold text-slate-800">AI 路书助手</span>
+        <span className="text-[12px] font-semibold text-slate-800">Waywise AI 助手</span>
         <span className="text-[10px] text-slate-400">
           {busy ? '思考中…' : hint ?? '先说想法，确认后我才改'}
         </span>

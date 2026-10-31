@@ -163,7 +163,7 @@ export function exportTripLongImage({ title, hotel, plan }: Options) {
 
   ctx.fillStyle = '#cbd5e1'
   ctx.font = '400 16px system-ui, "Microsoft YaHei", sans-serif'
-  ctx.fillText(`路书编译师 · 上海 · ${new Date().toLocaleDateString('zh-CN')}`, PAD, cursor)
+  ctx.fillText(`Waywise · ${new Date().toLocaleDateString('zh-CN')}`, PAD, cursor)
 
   // 下载
   canvas.toBlob((blob) => {

@@ -225,7 +225,7 @@ export default function Profile() {
             </div>
             {trips.length === 0 ? (
               <p className="mt-3 text-[11px] text-slate-400">
-                还没有路线。去首页说一句话，或在首页「导入行程」输入别人给的口令。
+                还没有路线。去首页探索一条路线，或在工作台的「导入行程」输入别人给的口令。
               </p>
             ) : (
               <div className="mt-3 grid grid-cols-3 gap-3">

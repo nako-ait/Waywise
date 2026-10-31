@@ -7,6 +7,8 @@
  */
 import { DEMO_ROUTES } from './demoRoutes'
 import { SHANGHAI_POIS } from './shanghaiPois'
+import inspirationCities from './inspirationCities.json'
+import inspirationLandmarks from './inspirationLandmarks.json'
 import type { TravelMode } from '@/types'
 
 export interface CityPoi {
@@ -45,7 +47,7 @@ const SHANGHAI: City = {
   name: '上海',
   center: { lng: 121.4737, lat: 31.2304, zoom: 12.4 },
   hotel: { name: '人民广场 · 演示起点', lng: 121.4737, lat: 31.2304 },
-  pois: SHANGHAI_POIS.map((poi) => ({
+  pois: [...SHANGHAI_POIS.map((poi) => ({
     name: poi.name,
     lng: poi.lng,
     lat: poi.lat,
@@ -54,7 +56,7 @@ const SHANGHAI: City = {
     district: poi.district,
     openTime: poi.openTime,
     closeTime: poi.closeTime,
-  })),
+  })), ...inspirationLandmarks.shanghai],
   routes: DEMO_ROUTES.map((route) => ({
     id: route.id,
     name: route.name,
@@ -80,6 +82,7 @@ const BEIJING: City = {
     { name: '颐和园', lng: 116.2755, lat: 39.9999, stayMin: 150, tags: ['园林'], district: '海淀区', openTime: '06:30', closeTime: '18:00' },
     { name: '天坛公园', lng: 116.4107, lat: 39.8822, stayMin: 90, tags: ['古迹'], district: '东城区' },
     { name: '798 艺术区', lng: 116.495, lat: 39.984, stayMin: 90, tags: ['艺术'], district: '朝阳区' },
+    ...inspirationLandmarks.beijing,
   ],
   routes: [
     {
@@ -245,7 +248,9 @@ const GUANGZHOU: City = {
   ],
 }
 
-export const CITIES: City[] = [SHANGHAI, BEIJING, HANGZHOU, CHENGDU, XIAN, GUANGZHOU]
+export const CITIES: City[] = [SHANGHAI, BEIJING, HANGZHOU, CHENGDU, XIAN, GUANGZHOU, ...inspirationCities.map((city): City => ({
+  ...city, routes: city.routes.map((route) => ({ ...route, mode: route.mode as TravelMode })),
+}))]
 
 export function getCity(cityId: string): City {
   return CITIES.find((city) => city.id === cityId) ?? SHANGHAI

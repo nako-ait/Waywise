@@ -47,7 +47,7 @@ def load_module(filename: str):
 
 def main() -> int:
     print("=" * 84)
-    print("路书编译师 TripCompiler —— 全链路自检")
+    print("Waywise —— 全链路自检")
     print("=" * 84)
 
     results: list[tuple[str, str, str, int, float, str]] = []

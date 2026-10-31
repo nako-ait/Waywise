@@ -3,12 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "路书编译师 TripCompiler —— 前端（React + Vite + 高德地图 + Zustand + Tailwind）",
+  "description": "Waywise —— 前端（React + Vite + 高德地图 + Zustand + Tailwind）",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview --port 4173"
+    "preview": "vite preview --port 4173",
+    "test:inspiration": "node scripts/test-inspiration.mjs"
   },
   "dependencies": {
     "@amap/amap-jsapi-loader": "^1.0.1",

@@ -34,6 +34,9 @@
 | 高德开放平台（JS API / Web 服务） | 商业服务条款 | 仅用于演示；POI 快照不对外分发原始数据 |
 | DeepSeek / 通义 / 智谱 API | 各家服务条款 | 用户自备 Key，仅存在本地浏览器，随请求转发 |
 | 上海 POI 快照（backend/data） | 由高德数据整理 | 演示用途，不做二次分发 |
+| 首页旅行摄影（frontend/public/inspiration） | [Unsplash License](https://unsplash.com/license) | 32 张本地压缩实景照片；摄影师与原页见同目录 credits.json，页面内也提供署名链接 |
+
+Waywise 首页的照片圆环交互参考了 inkwell.tech 的视觉节奏，界面与动效代码在本项目内实现，没有复制该站代码、Logo 或图片。
 
 ## 参考过思路的开源项目（未复制代码）
 

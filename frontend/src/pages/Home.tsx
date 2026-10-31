@@ -1,200 +1,126 @@
-import { useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { flushSync } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { CITIES, getCity, resolveRoutePois, type CityRoute } from '@/data/cities'
+import { CITIES, getCity } from '@/data/cities'
+import { resolveInspiration, type Inspiration } from '@/data/inspiration'
+import PhotoOrbit from '@/components/PhotoOrbit'
 import { clearChatHistory, DRAFT_CHAT_KEY } from '@/lib/chatHistory'
-import { useTripStore, type NewDestinationInput } from '@/store/useTripStore'
+import { loadInspiration } from '@/lib/loadInspiration'
+import { useTripStore } from '@/store/useTripStore'
+import './Home.css'
 
-/**
- * 首页：先选城市 → 上方出现该城市的推荐线路气泡 → 底部一句话起手。
- * 开始新路书时断开旧路书关联并清掉草稿对话，聊天记录跟着路书走。
- */
+type TransitionDocument = Document & {
+  startViewTransition?: (update: () => void) => { finished: Promise<void> }
+}
+
 export default function Home() {
   const navigate = useNavigate()
   const trips = useTripStore((s) => s.trips)
-  const cityId = useTripStore((s) => s.cityId)
-  const setCity = useTripStore((s) => s.setCity)
-  const setPendingPrompt = useTripStore((s) => s.setPendingPrompt)
-  const setHotel = useTripStore((s) => s.setHotel)
-  const setMode = useTripStore((s) => s.setMode)
-  const setDays = useTripStore((s) => s.setDays)
-  const clearDestinations = useTripStore((s) => s.clearDestinations)
-  const addDestinations = useTripStore((s) => s.addDestinations)
-  const showToast = useTripStore((s) => s.showToast)
-  const startNewTrip = useTripStore((s) => s.startNewTrip)
-
+  const currentCityId = useTripStore((s) => s.cityId)
+  const [selected, setSelected] = useState<Inspiration | null>(null)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [cityId, setCityId] = useState(currentCityId)
   const [prompt, setPrompt] = useState('')
-  const city = getCity(cityId)
-  const routes = city.routes.slice(0, 3)
+  const [opening, setOpening] = useState<string | null>(null)
+  const panel = useRef<HTMLElement>(null)
+  const focusReturn = useRef<HTMLElement | null>(null)
+  const resolved = selected ? resolveInspiration(selected) : null
+  const city = resolved?.city ?? getCity(cityId)
 
-  function start() {
+  const close = useCallback(() => {
+    setPanelOpen(false)
+    if (panel.current?.contains(document.activeElement)) focusReturn.current?.focus()
+  }, [])
+  const preview = useCallback((item: Inspiration) => {
+    if (document.activeElement instanceof HTMLElement && document.activeElement.matches('.waywise-photo')) focusReturn.current = document.activeElement
+    setSelected(item); setCityId(item.cityId); setPanelOpen(true)
+  }, [])
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
+    document.addEventListener('keydown', escape)
+    return () => document.removeEventListener('keydown', escape)
+  }, [close])
+
+  const open = useCallback((item: Inspiration) => {
+    if (opening) return
+    try {
+      resolveInspiration(item)
+      const go = () => {
+        loadInspiration(item)
+        navigate('/plan', { state: { presetName: item.title, compilePreset: true } })
+      }
+      const doc = document as TransitionDocument
+      if (doc.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        flushSync(() => setOpening(item.id))
+        doc.startViewTransition(() => flushSync(go)).finished.catch(() => {})
+      } else go()
+    } catch (error) {
+      setOpening(null)
+      useTripStore.getState().showToast('error', error instanceof Error ? error.message : '路线暂时无法打开')
+    }
+  }, [navigate, opening])
+
+  function custom() {
+    focusReturn.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setSelected(null); setCityId(currentCityId); setPanelOpen(true)
+    requestAnimationFrame(() => panel.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus())
+  }
+
+  function start(event: FormEvent) {
+    event.preventDefault()
     const text = prompt.trim()
-    if (!text) return
-    startNewTrip()
-    clearChatHistory(DRAFT_CHAT_KEY)
-    setPendingPrompt(text)
-    navigate('/plan')
+    if (!text || opening) return
+    const state = useTripStore.getState()
+    if (selected) loadInspiration(selected, text)
+    else {
+      state.setCity(cityId); state.startNewTrip()
+      state.setFullTripState({ cityId, hotel: getCity(cityId).hotel, destinations: [], mode: 'transit', days: 1 })
+      state.setPendingPrompt(text)
+      clearChatHistory(DRAFT_CHAT_KEY)
+    }
+    navigate('/plan', { state: selected ? { presetName: selected.title } : null })
   }
-
-  function loadRoute(route: CityRoute) {
-    startNewTrip()
-    clearChatHistory(DRAFT_CHAT_KEY)
-    clearDestinations()
-    setHotel({ ...route.hotel, address: city.name })
-    setMode(route.mode)
-    setDays(route.days)
-    const inputs = resolveRoutePois(city, route).map(
-      (poi) =>
-        ({
-          name: poi.name,
-          lng: poi.lng,
-          lat: poi.lat,
-          source: 'import',
-          selected: true,
-          stayMin: poi.stayMin,
-          openTime: poi.openTime,
-          closeTime: poi.closeTime,
-          tags: poi.tags,
-          address: poi.district,
-        }) satisfies NewDestinationInput,
-    )
-    const { added } = addDestinations(inputs)
-    showToast('success', `已载入「${route.name}」${added} 个地点`)
-    navigate('/plan')
-  }
-
-  const bubbleStyle = [
-    { left: '7%', top: '30%', rotate: '-3deg', delay: '0s' },
-    { left: '39%', top: '24%', rotate: '2deg', delay: '1.4s' },
-    { left: '68%', top: '33%', rotate: '3deg', delay: '2.8s' },
-  ]
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden bg-[linear-gradient(180deg,#ffffff_0%,#f6f9fc_55%,#eef4fa_100%)]">
-      {/* 城市选择 */}
-      <div className="flex shrink-0 items-center justify-center gap-3 pt-5">
-        <span className="text-[11px] text-slate-400">选择城市</span>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {CITIES.map((item) => (
-            <button
-              key={item.id}
-              className={`rounded-full px-3 py-1 text-[12px] transition-colors ${
-                item.id === city.id
-                  ? 'bg-slate-900 text-white'
-                  : 'border border-slate-200 bg-white/70 text-slate-600 hover:border-slate-400'
-              }`}
-              onClick={() => {
-                if (item.id === city.id) return
-                setCity(item.id)
-                startNewTrip()
-                clearChatHistory(DRAFT_CHAT_KEY)
-                showToast('success', `已切换到${item.name}`)
-              }}
-            >
-              {item.name}
-            </button>
-          ))}
+    <div className={`waywise-home ${panelOpen ? 'waywise-home--assistant' : ''}`}>
+      <PhotoOrbit onPreview={preview} onOpen={open} onClearPreview={close} onCustom={custom} />
+      <aside ref={panel} className="waywise-home-assistant" aria-label="Waywise 旅行助手" aria-hidden={!panelOpen}>
+        <div className="waywise-assistant-heading">
+          <span><span className="waywise-spark" aria-hidden="true">✧</span> Waywise 旅行助手</span>
+          <button type="button" onClick={close} aria-label="收起旅行助手">×</button>
         </div>
-      </div>
-
-      {/* 推荐线路气泡 */}
-      <div className="relative min-h-0 flex-1">
-        <div className="absolute left-1/2 top-8 w-full -translate-x-1/2 text-center">
-          <h1 className="text-[26px] font-bold tracking-tight text-slate-900">
-            在{city.name}，今天想去哪逛逛？
-          </h1>
-          <p className="mt-1.5 text-[12px] text-slate-500">
-            点一个现成线路，或者直接在下面说一句话
-          </p>
+        <div className="waywise-assistant-content">
+          {selected && resolved ? (
+            <>
+              <span className="waywise-eyebrow">{city.name} / 一张照片，一段旅程</span>
+              <h2>{selected.title}</h2><p>{selected.description}</p>
+              <img className="waywise-assistant-cover" src={selected.image} alt={`${city.name}旅行摄影`} />
+              <a className="waywise-photo-credit" href={selected.source} target="_blank" rel="noopener noreferrer">
+                {selected.photographer === 'Unsplash photographer' ? '照片原页' : selected.photographer} / Unsplash ↗
+              </a>
+              <div className="waywise-preset-meta"><span>{selected.days} 天</span>{selected.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>
+              <p className="waywise-route-origin">从 {resolved.route.hotel.name.replace(/ · .*$/, '')} 出发</p>
+              <ol className="waywise-preset-stops">{resolved.pois.map((poi) => <li key={poi.name}>{poi.name}</li>)}</ol>
+              <button className="waywise-open-route" type="button" disabled={Boolean(opening)} onClick={() => open(selected)}>{opening ? '正在打开…' : '打开这条路线'} <span aria-hidden="true">↗</span></button>
+              <p className="waywise-route-note">进入工作台后计算交通与时间，也可以继续调整地点和偏好。</p>
+            </>
+          ) : (
+            <>
+              <span className="waywise-eyebrow">YOUR NEXT JOURNEY</span>
+              <h2>今天，想去哪里走走？</h2><p>告诉我目的地、时间和偏好，一起把旅程安排得更从容。</p>
+              <label className="waywise-city-label">目的地城市<select value={cityId} onChange={(e) => setCityId(e.target.value)} aria-label="目的地城市">{CITIES.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              {trips.length > 0 && <div className="waywise-recent"><h3>接着上次的旅程</h3>{trips.slice(0, 3).map((trip) => <button key={trip.id} type="button" onClick={() => navigate(`/trip/${trip.id}`)}>{trip.title}<span aria-hidden="true">↗</span></button>)}</div>}
+            </>
+          )}
         </div>
-
-        {routes.map((route, index) => {
-          const style = bubbleStyle[index] ?? bubbleStyle[0]
-          return (
-            <button
-              key={route.id}
-              className="tc-bubble group absolute w-[300px] rounded-3xl border border-white/70 bg-white/85 px-5 py-4 text-left shadow-[0_18px_38px_-24px_rgba(15,23,42,.55)] backdrop-blur transition-colors hover:border-slate-300 hover:bg-white"
-              style={
-                {
-                  left: style.left,
-                  top: style.top,
-                  animationDelay: style.delay,
-                  '--tc-rotate': style.rotate,
-                } as CSSProperties
-              }
-              onClick={() => loadRoute(route)}
-              title={route.desc}
-            >
-              <div className="text-[15px] font-semibold text-slate-900">{route.name}</div>
-              <div className="mt-1 line-clamp-2 text-[11.5px] leading-5 text-slate-500">
-                {route.desc}
-              </div>
-              <div className="mt-2 flex items-center gap-1.5 text-[10px] text-slate-400">
-                <span className="rounded-full bg-slate-100 px-2 py-0.5">{route.days} 天</span>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5">
-                  {route.poiNames.length} 个地点
-                </span>
-                <span className="ml-auto text-slate-500 group-hover:text-slate-900">载入 →</span>
-              </div>
-            </button>
-          )
-        })}
-
-        {trips.length > 0 && (
-          <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 text-[11px] text-slate-400">
-            最近：
-            {trips.slice(0, 3).map((trip) => (
-              <button
-                key={trip.id}
-                className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[11px] text-slate-600 hover:border-slate-400"
-                onClick={() => navigate(`/trip/${trip.id}`)}
-              >
-                {trip.title}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* 底部 AI 输入 */}
-      <div className="shrink-0 px-6 pb-8 pt-2">
-        <div className="mx-auto w-full max-w-[760px]">
-          <div className="rounded-2xl border border-slate-300 bg-white p-3 shadow-[0_20px_44px_-30px_rgba(15,23,42,.6)]">
-            <textarea
-              rows={2}
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) start()
-              }}
-              placeholder={`在${city.name}想怎么玩：去哪、几天、和谁、累不累…`}
-              className="w-full resize-none bg-transparent text-sm leading-6 text-slate-800 outline-none placeholder:text-slate-400"
-            />
-            <div className="mt-1 flex items-center justify-between">
-              <div className="flex gap-1.5">
-                {['2 天亲子', '少走路', '公交优先'].map((chip) => (
-                  <button
-                    key={chip}
-                    className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500 hover:bg-slate-200"
-                    onClick={() => setPrompt((prev) => (prev ? `${prev}，${chip}` : chip))}
-                  >
-                    {chip}
-                  </button>
-                ))}
-              </div>
-              <button
-                className="rounded-lg bg-slate-900 px-4 py-2 text-[13px] font-medium text-white hover:bg-slate-800 disabled:bg-slate-300"
-                onClick={start}
-                disabled={!prompt.trim()}
-              >
-                生成路书 →
-              </button>
-            </div>
-          </div>
-          <p className="mt-2 text-center text-[10px] text-slate-400">
-            当前城市：{city.name} · AI 会先标点、再问清细节，最后编译成一份带时间轴的路书
-          </p>
-        </div>
-      </div>
+        <form className="waywise-home-composer" onSubmit={start}>
+          <label htmlFor="waywise-home-prompt">{selected ? '想让这条路线更适合你？' : `在${city.name}，你想怎么玩？`}</label>
+          <textarea id="waywise-home-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={2} placeholder="比如：少走路，下午早点回来…" onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && prompt.trim()) { event.preventDefault(); event.currentTarget.form?.requestSubmit() } }} />
+          <div className="waywise-composer-actions"><div>{['少走路', '多拍照'].map((chip) => <button key={chip} type="button" onClick={() => setPrompt((value) => value ? `${value}，${chip}` : chip)}>{chip}</button>)}</div><button className="waywise-send" type="submit" disabled={!prompt.trim() || Boolean(opening)} aria-label="把想法交给 Waywise">↑</button></div>
+        </form>
+      </aside>
+      <div className="waywise-home-quick"><button type="button" onClick={custom}>用自己的想法出发 <span aria-hidden="true">↗</span></button>{trips.length > 0 && <button type="button" onClick={() => navigate(`/trip/${trips[0].id}`)}>继续上次的旅程 ↗</button>}</div>
+      <span className="sr-only" role="status">{opening ? '正在打开推荐路线' : ''}</span>
     </div>
   )
 }
