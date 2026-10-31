@@ -1,17 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { ApiError, searchOnlinePois } from '@/api/client'
 import { loadAMap, searchPoi } from '@/lib/amap'
 import { getAMap, getMap, panTo } from '@/lib/mapInstance'
 import { useTripStore } from '@/store/useTripStore'
 import { getCity } from '@/data/cities'
 import type { PoiPreset } from '@/types'
 
-/** 常见起点快捷词，演示时一键搜出候选酒店 */
-const QUICK_KEYWORDS = ['和平饭店', '上海外滩', '静安寺 酒店', '陆家嘴 酒店']
-
 /**
  * 酒店面板
  * - 酒店 = 固定起点，蓝色标记，UI 上不提供「删除/取消」入口
- * - 通过高德 PlaceSearch（城市限定上海）搜索替换
+ * - 按当前城市搜索；服务器 Web 服务优先，SDK 备用
  */
 export default function HotelPanel() {
   const cityId = useTripStore((s) => s.cityId)
@@ -24,29 +22,56 @@ export default function HotelPanel() {
   const [results, setResults] = useState<PoiPreset[]>([])
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const searchId = useRef(0)
+  const quickKeywords = city.id === 'shanghai'
+    ? ['和平饭店', '上海外滩', '静安寺 酒店', '陆家嘴 酒店']
+    : [...new Set([city.hotel.name.replace(/ · .*$/, ''), city.pois[0]?.name, `${city.name} 酒店`].filter((name): name is string => Boolean(name)))]
+
+  useEffect(() => {
+    searchId.current += 1
+    setKeyword(''); setResults([]); setMessage(null); setLoading(false)
+    return () => { searchId.current += 1 }
+  }, [cityId])
 
   async function handleSearch(kw = keyword) {
     const q = kw.trim()
     if (!q) return
+    const requestId = ++searchId.current
     setLoading(true)
+    setResults([])
     setMessage(null)
     try {
-      const AMap = getAMap() || (await loadAMap())
-      const list = await searchPoi(AMap, q, city.name, 8)
+      let list: PoiPreset[]
+      let notice: string | null = null
+      try {
+        list = await searchOnlinePois(q, city.name, 8)
+      } catch (serverError) {
+        const reason = serverError instanceof ApiError ? serverError.detail || serverError.message : '服务器搜索暂不可用'
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          const AMap = getAMap() || await Promise.race([
+            loadAMap(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('地图搜索未就绪')), 8000) }),
+          ])
+          list = await searchPoi(AMap, q, city.name, 8)
+          notice = list.length ? '当前使用地图端搜索结果' : `地图端未返回结果；${reason}`
+        } catch (sdkError) {
+          const sdkReason = sdkError instanceof Error && sdkError.message !== 'MISSING_AMAP_KEY' ? sdkError.message : '地图搜索未就绪'
+          throw new Error(`${reason}；${sdkReason}`)
+        } finally { clearTimeout(timer) }
+      }
+      if (requestId !== searchId.current) return
       setResults(list)
-      if (!list.length) setMessage(`在${city.name}没有搜到结果，换个关键词试试`)
+      setMessage(notice || (!list.length ? `在${city.name}没有搜到「${q}」，可尝试完整名称或附近地标` : null))
     } catch (err) {
-      setMessage(
-        err instanceof Error && err.message === 'MISSING_AMAP_KEY'
-          ? '未配置高德 Key，无法搜索'
-          : '搜索失败，请检查网络或高德配额',
-      )
+      if (requestId === searchId.current) setMessage(err instanceof Error ? err.message : '搜索暂不可用，请重试')
     } finally {
-      setLoading(false)
+      if (requestId === searchId.current) setLoading(false)
     }
   }
 
   function pick(poi: PoiPreset) {
+    searchId.current += 1
+    setLoading(false)
     setHotel({ name: poi.name, lng: poi.lng, lat: poi.lat, address: poi.district })
     setResults([])
     setKeyword('')
@@ -62,6 +87,8 @@ export default function HotelPanel() {
       return
     }
     const c = map.getCenter()
+    searchId.current += 1
+    setLoading(false); setResults([])
     setHotel({
       name: '地图中心选定的起点',
       lng: c.getLng(),
@@ -96,7 +123,8 @@ export default function HotelPanel() {
       <div className="mt-2 flex gap-2">
         <input
           className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm outline-none placeholder:text-slate-400 focus:border-blue-500"
-          placeholder="搜索酒店 / 地名，如：和平饭店"
+          aria-label={`搜索${city.name}的出发地点`}
+          placeholder={`搜索${city.name}的酒店或地名`}
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           onKeyDown={(e) => {
@@ -113,14 +141,14 @@ export default function HotelPanel() {
         <button
           className="shrink-0 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
           onClick={useMapCenter}
-          title="把当前地图中心设为酒店"
+          title="把当前地图中心设为出发地点"
         >
           取中心
         </button>
       </div>
 
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {QUICK_KEYWORDS.map((k) => (
+        {quickKeywords.map((k) => (
           <button
             key={k}
             className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 hover:border-slate-400 hover:text-slate-700"
@@ -134,7 +162,7 @@ export default function HotelPanel() {
         ))}
       </div>
 
-      {message && <p className="mt-2 text-[11px] text-slate-500">{message}</p>}
+      {message && <p role="status" className="mt-2 text-[11px] text-slate-500">{message}</p>}
 
       {results.length > 0 && (
         <ul className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-slate-200 tc-scroll">

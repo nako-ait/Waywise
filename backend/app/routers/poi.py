@@ -5,8 +5,19 @@ from fastapi import APIRouter, Query
 
 from ..models import PoiPreset
 from ..services.poi_store import load_pois, search_pois
+from ..services.place_search import search_online_places
 
 router = APIRouter(prefix="/poi", tags=["poi"])
+
+
+@router.get("/online", response_model=list[PoiPreset])
+async def online_search(
+    q: str = Query(..., min_length=1, max_length=100, pattern=r"\S"),
+    city: str = Query(..., min_length=1, max_length=40, pattern=r"\S"),
+    limit: int = Query(8, ge=1, le=20),
+) -> list[PoiPreset]:
+    """City-scoped live search; upstream failure is never an empty result."""
+    return await search_online_places(q.strip(), city.strip(), limit)
 
 
 @router.get("/presets", response_model=list[PoiPreset])

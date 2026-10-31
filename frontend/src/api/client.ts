@@ -14,6 +14,7 @@ import type {
   IsochroneResponse,
   PlanRequest,
   PlanResponse,
+  PoiPreset,
   ShareCodeResponse,
   SharedTripData,
   TravelMode,
@@ -23,6 +24,12 @@ import type {
 // 这样浏览器不再跨域，也不会被系统代理 / CORS 影响（这是之前"连不上后端"的根因）。
 // 需要直连时，在 frontend/.env.local 里设 VITE_API_BASE=http://127.0.0.1:8000
 const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/+$/, '')
+
+/** Server-side AMap Web-service search; the credential never enters the URL here. */
+export function searchOnlinePois(keyword: string, city: string, limit = 8): Promise<PoiPreset[]> {
+  const query = new URLSearchParams({ q: keyword, city, limit: String(limit) })
+  return request<PoiPreset[]>(`/api/poi/online?${query}`, {}, 12000)
+}
 
 export class ApiError extends Error {
   status: number

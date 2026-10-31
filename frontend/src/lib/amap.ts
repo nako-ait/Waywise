@@ -8,6 +8,7 @@
  */
 import AMapLoader from '@amap/amap-jsapi-loader'
 import type { PoiPreset } from '@/types'
+export { searchPoi } from './amapPoiSearch'
 
 export const AMAP_JS_KEY = (import.meta.env.VITE_AMAP_JS_KEY ?? '').trim()
 export const AMAP_SECURITY_CODE = (import.meta.env.VITE_AMAP_SECURITY_CODE ?? '').trim()
@@ -101,41 +102,6 @@ export function reverseGeocode(
       })
       const name = near?.name || address || '候选点'
       resolve({ name, address })
-    })
-  })
-}
-
-/** 搜索 POI（酒店搜索 & 地名搜索共用） */
-export function searchPoi(
-  AMap: any,
-  keyword: string,
-  city = '上海',
-  pageSize = 10,
-): Promise<PoiPreset[]> {
-  return new Promise((resolve) => {
-    const ps = new AMap.PlaceSearch({
-      city,
-      citylimit: true,
-      pageSize,
-      pageIndex: 1,
-      extensions: 'all',
-    })
-    ps.search(keyword, (status: string, result: any) => {
-      if (status !== 'complete' || !result?.poiList?.pois) {
-        resolve([])
-        return
-      }
-      const list: PoiPreset[] = result.poiList.pois.map((p: any) => ({
-        name: p.name,
-        lng: Number(p.location?.lng),
-        lat: Number(p.location?.lat),
-        openTime: '',
-        closeTime: '',
-        stayMin: 60,
-        tags: typeof p.type === 'string' ? p.type.split(';').slice(0, 3) : [],
-        district: p.adname,
-      }))
-      resolve(list.filter((p) => Number.isFinite(p.lng) && Number.isFinite(p.lat)))
     })
   })
 }
