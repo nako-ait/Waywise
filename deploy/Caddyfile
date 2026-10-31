@@ -1,5 +1,7 @@
 {
 	admin off
+	# IP-address clients omit SNI; select the public certificate behind Docker NAT.
+	default_sni {$PUBLIC_IP}
 }
 
 https://{$PUBLIC_IP} {
