@@ -250,14 +250,45 @@ def _is_noise(token: str) -> bool:
     return bool(re.search(r"走路|拍照|便宜|省钱|换乘|时间|累|钱|预算|方便", token))
 
 
+CN_NUM = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+
+
+def _cn_number(text: str) -> int | None:
+    """「一百六十」→ 160；「十」→ 10；「两」→ 2。"""
+    section = 0
+    number = 0
+    for char in text:
+        if char in CN_NUM:
+            number = CN_NUM[char]
+        elif char == "十":
+            section += (number or 1) * 10
+            number = 0
+        elif char == "百":
+            section += (number or 1) * 100
+            number = 0
+        else:
+            return None
+    return section + number or None
+
+
 def _parse_stay_minutes(text: str) -> int | None:
-    """「待一小时」「30 分钟」「多待一会儿」-> 分钟数。"""
+    """「待一小时」「30 分钟」「一百六十分钟」「多待一会儿」-> 分钟数。"""
     match = re.search(r"(\d+)\s*(小时|个小时|h)", text)
     if match:
         return int(match.group(1)) * 60
     match = re.search(r"(\d+)\s*(分钟|分)", text)
     if match:
         return int(match.group(1))
+    match = re.search(r"([零一二两三四五六七八九十百]+)\s*(小时|个小时|h)", text)
+    if match:
+        value = _cn_number(match.group(1))
+        if value:
+            return value * 60
+    match = re.search(r"([零一二两三四五六七八九十百]+)\s*(分钟|分)", text)
+    if match:
+        value = _cn_number(match.group(1))
+        if value:
+            return value
     if re.search(r"多待|待久|久一点|慢慢逛|深度", text):
         return 120
     if re.search(r"随便看看|打卡就走|拍个照就走|路过", text):

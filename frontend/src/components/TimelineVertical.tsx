@@ -14,6 +14,13 @@ import type { TransportLeg, TravelMode } from '@/types'
  * 竖排路书（1.1 主视图）：右侧栏 + 详情页共用。
  * readOnly 时隐藏编辑/切换动作，只保留「看」和「导航」。
  */
+const STAY_PRESETS = [30, 45, 60, 90, 120, 150, 180, 240, 300]
+
+/** 停留时长下拉的可选项：固定档位 + 当前值（保证任意已存时长都能显示） */
+function stayOptions(current: number): number[] {
+  return [...new Set([...STAY_PRESETS, current])].sort((a, b) => a - b)
+}
+
 export default function TimelineVertical({ readOnly = false }: { readOnly?: boolean }) {
   const plan = useTripStore((s) => s.plan)
   const hotel = useTripStore((s) => s.hotel)
@@ -267,7 +274,35 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
                     </span>
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-slate-400">
-                    <span>停留 {stop.stayMin} 分</span>
+                    {readOnly ? (
+                      <span>停留 {stop.stayMin} 分</span>
+                    ) : (
+                      <label
+                        className="flex items-center gap-1"
+                        title="调整这个点的停留时长，改完自动重算时间轴"
+                      >
+                        <span>停留</span>
+                        <select
+                          className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] text-slate-600 outline-none focus:border-slate-500 disabled:opacity-50"
+                          value={stop.stayMin}
+                          disabled={planning}
+                          onChange={(event) => {
+                            const value = Number(event.target.value)
+                            if (!Number.isFinite(value) || value === stop.stayMin) return
+                            recompile(
+                              () => updateDestination(stop.id, { stayMin: value }),
+                              `「${stop.name}」停留改为 ${value} 分钟，正在重算`,
+                            )
+                          }}
+                        >
+                          {stayOptions(stop.stayMin).map((v) => (
+                            <option key={v} value={v}>
+                              {v} 分钟
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     {(stop.lunchMin ?? 0) > 0 && (
                       <span className="rounded bg-slate-100 px-1 text-slate-500">含午餐 {stop.lunchMin} 分</span>
                     )}

@@ -111,6 +111,14 @@ async def prepare_transport_proposal(proposal: agent.Proposal, ctx: dict, eviden
     if proposal.ops.get("mode") not in explicit:
         proposal.ops.pop("mode", None)
     proposal.preview = agent._preview_from_ops(proposal.ops)
+    # 只改停留时长（没有交通/天数等其它变化）时，直接给针对性回执，不套用交通试算文案
+    if proposal.ops.get("stayChanges") and not any(
+        key in proposal.ops
+        for key in ("mode", "weights", "days", "times", "limits", "addPlaces", "removeNames")
+    ):
+        stays = "；".join(f"「{s['name']}」停留 {s['stayMin']} 分钟" for s in proposal.ops["stayChanges"])
+        proposal.reply = f"准备把{stays}，确认后重新生成时间安排。"
+        return proposal
     proposal.reply = "准备按你的偏好逐段安排交通，确认后生成；含返程的时间、步行量和费用见下方。"
     try:
         req, _, _ = agent.request_from_ops(_base_request(ctx), proposal.ops)
@@ -229,7 +237,18 @@ async def run(ctx: dict[str, Any]) -> tuple[agent.Proposal, list[dict]]:
         resp = await llm.chat_tools(messages, [SEARCH_TOOL, PREVIEW_TOOL, TURN_TOOL], timeout=30.0)
         calls = resp.get("tool_calls") or []
         if not calls:
+            # 模型光回了文字没调工具：再请求一次，强制收口成提案。
+            # 否则"纯聊天回复"不会进入「确认执行」流程，用户会以为没反应。
             reply = str(resp.get("content") or "").strip()
+            messages.append({"role": "assistant", "content": reply or ""})
+            messages.append({"role": "user", "content": "请调用 propose_changes 给出最终提案。"})
+            forced = await llm.chat_tools(messages, [TURN_TOOL], force="propose_changes", timeout=30.0)
+            for call in forced.get("tool_calls") or []:
+                proposal = agent.proposal_from_llm_args(
+                    call.get("arguments") or {}, index=index, used_names=set(ctx["used_names"])
+                )
+                if proposal is not None:
+                    return proposal, evidence
             return agent.Proposal(kind="answer", reply=agent._short(reply or "我在，说说你想怎么改？")), evidence
 
         call = calls[0]
