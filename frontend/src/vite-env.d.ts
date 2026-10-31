@@ -4,6 +4,7 @@
 interface ImportMetaEnv {
   readonly VITE_AMAP_JS_KEY?: string
   readonly VITE_AMAP_SECURITY_CODE?: string
+  readonly VITE_AMAP_SERVICE_HOST?: string
   readonly VITE_API_BASE?: string
 }
 
@@ -16,7 +17,7 @@ declare global {
     /** 高德 JS API 由 @amap/amap-jsapi-loader 挂到 window 上 */
     AMap: any
     /** JS API 2.0 安全密钥配置 */
-    _AMapSecurityConfig?: { securityJsCode: string }
+    _AMapSecurityConfig?: { securityJsCode?: string; serviceHost?: string }
   }
 }
 

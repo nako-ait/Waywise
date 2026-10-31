@@ -14,9 +14,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 ASSIGNMENT = re.compile(r'^([A-Z_][A-Z0-9_]*)=(.*)$')
 
 
-def configure(path: Path, template: Path, key: str) -> None:
-    if not key or any(character.isspace() for character in key) or '*' in key:
-        raise ValueError('Please enter the complete API key, without spaces or masking stars.')
+def write_private_env(path: Path, template: Path, updates: dict[str, str], remove=()) -> None:
     if path.is_symlink():
         raise ValueError('Refusing to replace a symlink.')
     original = path.read_bytes() if path.exists() else None
@@ -26,17 +24,14 @@ def configure(path: Path, template: Path, key: str) -> None:
             match = ASSIGNMENT.fullmatch(line.strip())
             if match:
                 values[match[1]] = match[2]
-    # Single quotes keep $ and # literal for Compose env_file and python-dotenv.
-    quoted_key = "'" + key.replace('\\', '\\\\').replace("'", "\\'") + "'"
-    values.update({
-        'LLM_PROVIDER': 'deepseek',
-        'DEEPSEEK_API_KEY': quoted_key,
-        'DEEPSEEK_BASE_URL': 'https://api.modelverse.cn/v1',
-        'DEEPSEEK_MODEL': 'deepseek-v4.1-flash',
-    })
+    values.update(updates)
+    for name in remove:
+        values.pop(name, None)
     lines = []
     for line in template.read_text(encoding='utf-8-sig').splitlines():
         match = ASSIGNMENT.fullmatch(line.strip())
+        if match and match[1] in remove:
+            continue
         if match and match[1] in values:
             lines.append(match[1] + '=' + values.pop(match[1]))
         else:
@@ -56,6 +51,19 @@ def configure(path: Path, template: Path, key: str) -> None:
     finally:
         if os.path.exists(temporary_name):
             os.unlink(temporary_name)
+
+
+def configure(path: Path, template: Path, key: str) -> None:
+    if not key or any(character.isspace() for character in key) or '*' in key:
+        raise ValueError('Please enter the complete API key, without spaces or masking stars.')
+    # Single quotes keep $ and # literal for Compose env_file and python-dotenv.
+    quoted_key = "'" + key.replace('\\', '\\\\').replace("'", "\\'") + "'"
+    write_private_env(path, template, {
+        'LLM_PROVIDER': 'deepseek',
+        'DEEPSEEK_API_KEY': quoted_key,
+        'DEEPSEEK_BASE_URL': 'https://api.modelverse.cn/v1',
+        'DEEPSEEK_MODEL': 'deepseek-v4.1-flash',
+    })
 
 
 def main() -> int:

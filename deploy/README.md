@@ -25,9 +25,14 @@ cp backend/.env.example backend/.env
 只返回思考内容而无最终回答仍判为失败。诊断包含结束原因及 token 用量，不回显思考正文。
 连通测试通过不代表工具调用已经验收，仍需用真实行程请求验证提案与执行流程。
 
-如需构建地图页面，在项目根目录新建 .env，填写 VITE_AMAP_JS_KEY。
-当前应用的 VITE_AMAP_SECURITY_CODE 是浏览器明文设置模式，会进入前端构建产物；
-公开发布前应改为高德官方推荐的服务器代理模式，不要把服务器 API 密钥填入 VITE_ 变量。
+配置高德可运行 `python3 backend/scripts/configure_cloud_amap.py`，按顺序隐藏输入：
+高德 Web 服务 Key、Web 端 JS API Key、该 JS Key 对应的安全密钥。
+工具保留现有 AI 设置并备份配置，写入 backend/.env 和项目根目录 .env。
+根目录的 VITE_AMAP_JS_KEY 是公开的浏览器 Key；AMAP_SECURITY_CODE 仅在容器启动时传给 Nginx。
+云端构建固定启用 /_AMapService 代理，不将安全密钥写进构建产物；本地开发仍支持旧的明文配置。
+Nginx 仅代理固定高德上游，并验证 HTTPS 证书；关闭代理位置的请求日志和错误日志以避免记录鉴权参数。
+参考 [高德服务器代理说明](https://lbs.amap.com/api/javascript-api-v2/guide/abc/jscode)。
+不要把服务器 API 密钥填入 VITE_ 变量。代理公开前仍需配置访问保护和调用额度限制。
 VITE_API_BASE 固定为空，前端通过 Nginx 同源访问 /api。
 所有 .env 文件均被 Git 和 Docker 构建上下文排除。
 
@@ -60,4 +65,4 @@ sudo docker compose logs --tail=100
 修改后端环境变量后需要重新创建容器；上述 up 命令会处理。
 修改前端 VITE_ 变量后必须重新构建前端。
 停止服务可使用 sudo docker compose stop；不要添加 -v 删除数据卷。
-公开访问、HTTPS 和高德安全密钥代理需要在正式对外演示前完成配置与验证。
+公开访问、HTTPS 和访问保护需要在正式对外演示前完成配置与验证。

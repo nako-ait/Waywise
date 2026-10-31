@@ -23,7 +23,9 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         VITE_AMAP_JS_KEY: ${VITE_AMAP_JS_KEY:-}
-        VITE_AMAP_SECURITY_CODE: ${VITE_AMAP_SECURITY_CODE:-}
+    environment:
+      AMAP_SECURITY_CODE: ${AMAP_SECURITY_CODE:-}
+      NGINX_ENVSUBST_FILTER: "^AMAP_SECURITY_CODE"
     ports:
       - "127.0.0.1:8080:80"
     depends_on:

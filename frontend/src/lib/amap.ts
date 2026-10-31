@@ -11,6 +11,7 @@ import type { PoiPreset } from '@/types'
 
 export const AMAP_JS_KEY = (import.meta.env.VITE_AMAP_JS_KEY ?? '').trim()
 export const AMAP_SECURITY_CODE = (import.meta.env.VITE_AMAP_SECURITY_CODE ?? '').trim()
+const AMAP_SERVICE_HOST = (import.meta.env.VITE_AMAP_SERVICE_HOST ?? '').trim()
 export const hasAmapKey = AMAP_JS_KEY.length > 0
 
 /** 上海市中心（人民广场） */
@@ -40,7 +41,11 @@ export function loadAMap(): Promise<any> {
   if (!hasAmapKey) return Promise.reject(new Error('MISSING_AMAP_KEY'))
 
   // JS API 2.0：如果 Key 绑定了「安全密钥」，必须在加载前注入
-  if (AMAP_SECURITY_CODE) {
+  if (AMAP_SERVICE_HOST) {
+    window._AMapSecurityConfig = {
+      serviceHost: new URL(AMAP_SERVICE_HOST, window.location.origin).href.replace(/\/$/, ''),
+    }
+  } else if (AMAP_SECURITY_CODE) {
     window._AMapSecurityConfig = { securityJsCode: AMAP_SECURITY_CODE }
   }
 
