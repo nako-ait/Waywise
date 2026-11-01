@@ -1,9 +1,13 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react'
 import { hasAmapKey, loadAMap, reverseGeocode } from '@/lib/amap'
+import { useMemo } from 'react'
 import { blockPropagation, escapeHtml } from '@/lib/dom'
 import { layoutLabels, type LabelCandidate, type LabelObstacle } from '@/lib/labelLayout'
 import { clearMapInstance, fitToPoints, setMapInstance } from '@/lib/mapInstance'
-import { fetchLegGeometries, type LegEndpoints, type LngLatPath } from '@/lib/routeGeometry'
+import { fetchLegGeometries, type LegEndpoints, type LegGeometry } from '@/lib/routeGeometry'
+import { displayRoutes } from '@/lib/routeDisplay'
+import { getCity } from '@/data/cities'
+import type { Hotel, PlanDay, TravelMode } from '@/types'
 import { RouteFlow } from '@/lib/routeFlow'
 import { useOrderMap, useDayScope } from '@/lib/routeOrder'
 import { bandColor, modeStyle, ROUTE_COLOR } from '@/lib/routeStyle'
@@ -139,11 +143,10 @@ export default function MapView() {
 
   const [booting, setBooting] = useState(true)
   const [initError, setInitError] = useState<string | null>(null)
-  /**
-   * 前端自己取回来的真实路网折线（后端没配 Web 服务 Key 时用）。
-   * null = 还没取到 / 取不到，继续用后端给的折线（离线估算时就是直线）。
-   */
-  const [clientPaths, setClientPaths] = useState<LngLatPath[] | null>(null)
+  /** Partial geometry recovery is tied to the exact day/origin/city/mode. */
+  const [clientPaths, setClientPaths] = useState<{ day: PlanDay; hotel: Hotel; cityId: string; mode: string; items: Array<LegGeometry | null> } | null>(null)
+  const [geometryLoading, setGeometryLoading] = useState(false)
+  const [geometryRetry, setGeometryRetry] = useState(0)
 
   /** 标签避让的下一帧句柄（连拖地图时只算最后一帧） */
   const labelFrameRef = useRef<number | null>(null)
@@ -248,6 +251,7 @@ export default function MapView() {
   const mapReady = useTripStore((s) => s.mapReady)
   const plan = useTripStore((s) => s.plan)
   const mode = useTripStore((s) => s.mode)
+  const cityId = useTripStore((s) => s.cityId)
   const isochrone = useTripStore((s) => s.isochrone)
   const isochroneVisible = useTripStore((s) => s.isochroneVisible)
   /** 地图标记是否显示地名标签 */
@@ -256,6 +260,13 @@ export default function MapView() {
   const orderMap = useOrderMap()
   /** 多日模式：只高亮「当前这一天」，其他天的点退回灰色候选态 */
   const { day: activeDayPlan, dayIds } = useDayScope()
+  const displayedRoutes = useMemo(() => {
+    if (!activeDayPlan) return []
+    const current = clientPaths?.day === activeDayPlan && clientPaths.hotel === hotel && clientPaths.cityId === cityId && clientPaths.mode === mode
+    return displayRoutes(activeDayPlan, hotel, mode, current ? clientPaths.items : [], plan?.days[0] === activeDayPlan ? plan.polylines : [])
+  }, [activeDayPlan, hotel, mode, cityId, clientPaths, plan])
+  const unverifiedCount = displayedRoutes.filter(item => !item.verified).length
+  const estimatedCount = displayedRoutes.filter(item => item.statsEstimated).length
 
   /* ============================================================
    * 1) 初始化地图（只执行一次；StrictMode 下会 mount→unmount→mount）
@@ -543,17 +554,16 @@ export default function MapView() {
   }, [destinations, dayIds, orderMap, showLabels, mapReady, scheduleLabelLayout])
 
   /* ============================================================
-   * 5) 路线几何：后端没配「Web 服务」Key 时（dataSource=offline），
-   *    它只能给「直线 × 绕行系数」；这里用 JS API 的路径规划补回真实路网。
-   *    取不到就保持后端折线，绝不半真半假。
+   * 5) 按每段的来源与 approx 标记补查；未知路径始终保留未确认状态。
    * ============================================================ */
   useEffect(() => {
     const AMap = AMapRef.current
     const map = mapRef.current
     setClientPaths(null)
     if (!AMap || !map || !plan || !activeDayPlan || !activeDayPlan.stops.length) return
-    // 后端已经是真实路网（配了 Web 服务 Key），不用重复请求
-    if (plan.solver?.dataSource === 'amap') return
+    const day = activeDayPlan
+    const serverRoutes = displayRoutes(day, hotel, mode, [], plan.days[0] === day ? plan.polylines : [])
+    if (serverRoutes.every(item => item.verified)) { setGeometryLoading(false); return }
 
     const stops = activeDayPlan.stops
     const points = [
@@ -561,26 +571,27 @@ export default function MapView() {
       ...stops.map((stop) => ({ lng: stop.lng, lat: stop.lat })),
       { lng: hotel.lng, lat: hotel.lat },
     ]
-    const routeMode = (plan.solver?.mode as typeof mode) ?? mode
+    const routeMode = mode
     const legs: LegEndpoints[] = []
     for (let i = 1; i < points.length; i += 1) {
       // 每一段用它自己的方式（逐段覆盖），没有就用整份路书的方式
-      const isReturn = i === points.length - 1
-      const legMode = isReturn
-        ? ((activeDayPlan.returnLeg?.mode as typeof mode) ?? routeMode)
-        : ((stops[i - 1].transportFromPrev?.mode as typeof mode) ?? routeMode)
-      legs.push({ from: points[i - 1], to: points[i], mode: legMode })
+      const legMode = serverRoutes[i - 1].mode as TravelMode
+      legs.push({ from: points[i - 1], to: points[i], mode: legMode, skip: serverRoutes[i - 1].verified })
     }
 
     let cancelled = false
-    void fetchLegGeometries(AMap, legs, routeMode).then((geometries) => {
+    setGeometryLoading(true)
+    const progress = (items: Array<LegGeometry | null>) => {
+      if (!cancelled) setClientPaths({ day, hotel, cityId, mode, items })
+    }
+    void fetchLegGeometries(AMap, legs, routeMode, getCity(cityId).name, { cancelled: () => cancelled, onProgress: progress }).then((geometries) => {
       if (cancelled || !geometries) return
-      setClientPaths(geometries.map((item) => item.path))
-    })
+      progress(geometries)
+    }).catch(() => {}).finally(() => { if (!cancelled) setGeometryLoading(false) })
     return () => {
       cancelled = true
     }
-  }, [plan, activeDayPlan, hotel, mode, mapReady])
+  }, [plan, activeDayPlan, hotel, mode, cityId, mapReady, geometryRetry])
 
   /* ============================================================
    * 6) 路线图层：折线（白描边 + 浅蓝主色）+ 时长徽标 + 流动箭头
@@ -598,18 +609,14 @@ export default function MapView() {
     const day = activeDayPlan
     if (!plan || !day || !day.stops.length) return
 
-    const legs = clientPaths ?? day.polylines ?? plan.polylines ?? []
-    const fallbackMode = plan.solver?.mode ?? mode
-
-    legs.forEach((path, index) => {
+    displayedRoutes.forEach(({ path, leg, mode: legMode, verified, statsEstimated }, index) => {
       const isReturn = index >= day.stops.length
-      const leg = isReturn ? null : day.stops[index].transportFromPrev
-      const style = modeStyle(leg?.mode ?? fallbackMode)
+      const style = modeStyle(legMode)
 
       const isSelected = selectedLeg === index
       if (path.length > 1) {
         // 白色描边打底，让浅蓝主线在灰白底图上依然清晰
-        const casing = new AMap.Polyline({
+        const casing = verified ? new AMap.Polyline({
           path,
           strokeColor: '#ffffff',
           strokeWeight: 14,
@@ -618,12 +625,14 @@ export default function MapView() {
           lineCap: 'round',
           zIndex: 120,
           bubble: false,
-        })
+        }) : null
         const line = new AMap.Polyline({
           path,
-          strokeColor: isSelected ? '#1d4ed8' : ROUTE_COLOR,
-          strokeWeight: isSelected ? 12 : 10,
-          strokeOpacity: 0.92,
+          strokeColor: verified ? (isSelected ? '#1d4ed8' : ROUTE_COLOR) : '#94a3b8',
+          strokeWeight: verified ? (isSelected ? 12 : 10) : 3,
+          strokeOpacity: verified ? 0.92 : 0.65,
+          strokeStyle: verified ? 'solid' : 'dashed',
+          strokeDasharray: [8, 8],
           lineJoin: 'round',
           lineCap: 'round',
           // 方向交给序号与时间轴表达，折线保持干净的实线
@@ -631,9 +640,10 @@ export default function MapView() {
           zIndex: 121,
           bubble: false,
         })
-        casing.setMap(map)
+        casing?.setMap(map)
         line.setMap(map)
-        routeOverlaysRef.current.push(casing, line)
+        if (casing) routeOverlaysRef.current.push(casing)
+        routeOverlaysRef.current.push(line)
 
         const midpoint = path[Math.floor(path.length / 2)]
         line.on('click', () => {
@@ -642,10 +652,11 @@ export default function MapView() {
           infoWindowRef.current?.setContent(
             infoWindowHtml(`第 ${index + 1} 段 · ${style.label}`, [
               isReturn ? '返回酒店' : `前往 ${day.stops[index].name}`,
-              leg
-                ? `${leg.durationMin} 分钟 / ${leg.distanceKm} km / ${leg.cost} 元`
-                : '返回酒店段',
-              leg?.approx ? '该折线为直线近似（离线估算）' : '',
+              leg && verified
+                ? `${statsEstimated ? '估算：' : ''}${leg.durationMin} 分钟 / ${leg.distanceKm} km / ${leg.cost} 元`
+                : '',
+              !verified ? '路线未确认：虚线仅连接地点，不表示实际可通行路径' : '',
+              verified && statsEstimated ? '地图已补齐路线形状，时长与费用仍为规划估算' : '',
             ].filter(Boolean)),
           )
           infoWindowRef.current?.open(map, midpoint)
@@ -655,7 +666,7 @@ export default function MapView() {
       // 交通方式徽标放在这段折线的中间
       const anchor = path.length ? path[Math.floor(path.length / 2)] : null
       if (anchor) {
-        const text = isReturn ? '回酒店' : `${Math.round(leg?.durationMin ?? 0)} 分`
+        const text = !verified ? '路线未确认' : `${isReturn ? '回程 · ' : ''}${statsEstimated ? '约' : ''}${Math.round(leg?.durationMin ?? 0)} 分`
         const marker = new AMap.Marker({
           position: anchor,
           anchor: 'center',
@@ -669,14 +680,15 @@ export default function MapView() {
     })
 
     // 真实路网折线才做流动箭头（两点直线 = 离线估算，不伪装成真实路径）
-    if (legs.some((path) => path.length > 2)) {
+    const actualPaths = displayedRoutes.filter(item => item.verified).map(item => item.path)
+    if (actualPaths.some((path) => path.length > 2)) {
       if (!flowRef.current) flowRef.current = new RouteFlow(AMap, map)
-      flowRef.current.setPaths(legs)
+      flowRef.current.setPaths(actualPaths)
     }
 
     // 把整条路线框进视野
     fitToPoints([hotel, ...day.stops])
-  }, [plan, activeDayPlan, mode, hotel, mapReady, clientPaths, selectedLeg])
+  }, [plan, activeDayPlan, mode, hotel, mapReady, displayedRoutes, selectedLeg])
 
   /* ============================================================
    * 7) 等时圈图层（模块 3）：酒店 15/30/45 分钟可达范围
@@ -741,6 +753,15 @@ export default function MapView() {
       )}
 
       <MapLegend />
+      {displayedRoutes.length > 0 && (unverifiedCount > 0 || estimatedCount > 0) && (
+        <div role="status" className="absolute bottom-40 left-4 right-4 z-10 max-w-sm rounded-lg border border-amber-200 bg-amber-50/95 px-3 py-2 text-[11px] leading-5 text-amber-900 shadow-panel">
+          {unverifiedCount > 0 ? <>
+            <p>{geometryLoading ? '正在补查实际路线。' : ''}仍有 {unverifiedCount} 段未确认，灰色虚线仅表示地点顺序，不代表可通行道路。</p>
+            {!geometryLoading && <button type="button" className="mt-1 underline underline-offset-2" onClick={() => setGeometryRetry(value => value + 1)}>重试路线查询</button>}
+            {displayedRoutes.some(item => item.error) && <p className="mt-1">{displayedRoutes.find(item => item.error)?.error}</p>}
+          </> : <p>路线形状已补齐；部分时长和费用仍为估算，请在工作台重新编译核实。</p>}
+        </div>
+      )}
     </div>
   )
 }

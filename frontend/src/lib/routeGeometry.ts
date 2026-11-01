@@ -1,14 +1,13 @@
 /**
  * 真实路线几何（前端侧，走高德 JS API 的路径规划服务）。
  *
- * 为什么需要它：后端的距离/路径默认走「高德 Web 服务」，而这把 Key 属于「Web端(JS API)」，
- * 后端拿不到真实路网，只能退化成「直线 × 绕行系数」—— 地图上就是两点之间的直线，
- * 看起来像直升机。这里用 JS API 已有的 Walking / Driving / Transfer 插件，
- * 在浏览器里把每一段的真实路径（路网折线）取回来画到地图上。
+ * 后端路线接口可能单独失败，尽管距离矩阵仍来自高德。
+ * 这里使用 Walking / Driving / Transfer 插件补查缺失路段；
+ * 未确认的连接线必须与真实路网明确区分，不能用其他方式的道路替代。
  *
  * 约定：
- *  · 后端 `dataSource === 'amap'` 时说明它已经给了真实折线，不再走这里；
- *  · 任何一段取不到就整组放弃（调用方保持原来的折线），避免「一半真一半假」；
+ *  · 调用方逐段检查几何来源，已确认的路段不重复请求；
+ *  · 取不到当前交通方式的路径时保留未确认状态，不借用其他交通方式的道路；
  *  · 结果按「方式 + 起终点」缓存，拖动/缩放/切天数不会重复打接口。
  */
 import type { TravelMode } from '@/types'
@@ -21,6 +20,7 @@ export interface LegEndpoints {
   to: { lng: number; lat: number }
   /** 这一段的交通方式（逐段覆盖）；不填就用整份路书的方式 */
   mode?: TravelMode
+  skip?: boolean
 }
 
 export interface LegGeometry {
@@ -29,12 +29,10 @@ export interface LegGeometry {
   durationMin: number
   /**
    * 实际用的路径规划服务。
-   * 通常等于请求的方式；公交/地铁在「距离太近、没有线路」时高德返回 NO_DATA，
-   * 这一段会退化成步行（近）或驾车（远）的真实路网 —— 折线依然是真实的，
-   * 只是不再假装那是公交线路。
-   * 'none' 表示这一段连兜底都没取到，退回两点直线。
+   * 等于请求的方式；'none' 表示未取得该方式的路径，仅保留地点顺序连接线。
    */
   resolvedMode: TravelMode | 'none'
+  error?: string
 }
 
 /** 单段查询超时：高德服务偶尔静默失败，不能让整张图卡住 */
@@ -50,10 +48,10 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
 }
 
-function cacheKey(mode: string, from: LegEndpoints['from'], to: LegEndpoints['to']): string {
+function cacheKey(mode: string, from: LegEndpoints['from'], to: LegEndpoints['to'], city: string): string {
   const f = `${from.lng.toFixed(5)},${from.lat.toFixed(5)}`
   const t = `${to.lng.toFixed(5)},${to.lat.toFixed(5)}`
-  return `${mode}|${f}|${t}`
+  return `${city}|${mode}|${f}|${t}`
 }
 
 /** 统一把 AMap.LngLat[] / {lng,lat}[] / [[lng,lat]] 转成 [[lng,lat]] */
@@ -90,18 +88,23 @@ function straightKm(from: LegEndpoints['from'], to: LegEndpoints['to']): number 
 }
 
 /** 走一次路径规划服务（callback 风格 → Promise） */
-function searchRoute(AMap: any, from: LegEndpoints['from'], to: LegEndpoints['to'], mode: TravelMode) {
-  return new Promise<any>((resolve) => {
+function searchRoute(AMap: any, from: LegEndpoints['from'], to: LegEndpoints['to'], mode: TravelMode, city: string, timeoutMs: number) {
+  return new Promise<{ result?: any; error?: string }>((resolve) => {
     let settled = false
-    const done = (value: any) => {
+    const done = (value: { result?: any; error?: string }) => {
       if (settled) return
       settled = true
       resolve(value)
     }
-    const timer = window.setTimeout(() => done(null), SEARCH_TIMEOUT_MS)
+    const timer = window.setTimeout(() => done({ error: '地图路线查询超时' }), timeoutMs)
     const callback = (status: string, result: any) => {
       window.clearTimeout(timer)
-      done(status === 'complete' ? result : null)
+      if (status === 'complete') done({ result })
+      else {
+        const raw = typeof result === 'string' ? result : result?.info
+        const code = typeof raw === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(raw) ? `（${raw}）` : ''
+        done({ error: status === 'no_data' ? '未找到当前交通方式的可用路径' : `地图路线查询失败${code}` })
+      }
     }
     try {
       const origin = new AMap.LngLat(from.lng, from.lat)
@@ -109,8 +112,7 @@ function searchRoute(AMap: any, from: LegEndpoints['from'], to: LegEndpoints['to
       if (mode === 'walk') {
         new AMap.Walking({ hideMarkers: true }).search(origin, destination, callback)
       } else if (mode === 'transit' || mode === 'subway') {
-        // city / cityd 都填上海 citycode；policy 0 = 最快捷
-        new AMap.Transfer({ city: '021', cityd: '021', policy: 0, hideMarkers: true }).search(
+        new AMap.Transfer({ city, cityd: city, policy: 0, hideMarkers: true }).search(
           origin,
           destination,
           callback,
@@ -121,7 +123,7 @@ function searchRoute(AMap: any, from: LegEndpoints['from'], to: LegEndpoints['to
       }
     } catch {
       window.clearTimeout(timer)
-      done(null)
+      done({ error: '地图路线插件未就绪' })
     }
   })
 }
@@ -131,7 +133,12 @@ function parseGeometry(result: any, mode: TravelMode): LegGeometry | null {
   if (!result) return null
 
   if (mode === 'transit' || mode === 'subway') {
-    const plan = result.plans?.[0]
+    const plan = mode === 'subway'
+      ? result.plans?.find((candidate: any) => {
+        const rides = (candidate.segments ?? []).filter((segment: any) => segment.transit)
+        return rides.length > 0 && rides.every((segment: any) => /地铁|轻轨|subway|metro/i.test(`${segment.transit.type ?? ''} ${segment.transit.name ?? ''}`))
+      })
+      : result.plans?.[0]
     if (!plan) return null
     let path = toPath(plan.path)
     if (path.length < 2) {
@@ -164,37 +171,21 @@ function parseGeometry(result: any, mode: TravelMode): LegGeometry | null {
 }
 
 /**
- * 单段解析：先按选定方式取；取不到（例如公交 NO_DATA）再退化成真实步行/驾车路网。
- * 这样每一段都能画成真实道路，而不是两点直线。
+ * 只查询选定交通方式；未取得路径时明确返回未确认连接线。
  */
 async function resolveLeg(
   AMap: any,
   leg: LegEndpoints,
   mode: TravelMode,
+  city: string,
+  timeoutMs: number,
 ): Promise<LegGeometry> {
-  const primary = parseGeometry(await searchRoute(AMap, leg.from, leg.to, mode), mode)
+  const response = await searchRoute(AMap, leg.from, leg.to, mode, city, timeoutMs)
+  const primary = parseGeometry(response.result, mode)
   if (primary) return primary
 
   const km = straightKm(leg.from, leg.to)
-  // 兜底方式按「怎么走更接近真实」来选：
-  //  · 公交/地铁 3km 内走路更合理（高德对过近的公交常返回 NO_DATA），更远才用驾车路网
-  //  · 步行失败就用驾车路网兜底；打车/驾车失败且很近，就退回步行
-  const altMode: TravelMode =
-    mode === 'transit' || mode === 'subway'
-      ? km <= 3
-        ? 'walk'
-        : 'drive'
-      : mode === 'walk'
-        ? 'drive'
-        : km <= 1
-          ? 'walk'
-          : 'drive'
-  if (altMode !== mode) {
-    const alt = parseGeometry(await searchRoute(AMap, leg.from, leg.to, altMode), altMode)
-    if (alt) return { ...alt, resolvedMode: altMode }
-  }
-
-  // 连兜底都失败：保留两点直线，至少不拖累其它段
+  // This is an order connector, never a navigable road.
   return {
     path: [
       [leg.from.lng, leg.from.lat],
@@ -203,36 +194,42 @@ async function resolveLeg(
     distanceKm: km,
     durationMin: 0,
     resolvedMode: 'none',
+    error: response.error ?? '地图未返回当前交通方式的路线形状',
   }
 }
 
 /**
  * 取多段的真实路径。
- * 每段都有兜底：主方式 → 步行/驾车 → 两点直线（resolvedMode='none'）。
+ * 查询失败返回未确认连接线；已知真实路径用 skip 跳过。
  * 只缓存成功的（真实路网），失败的下次还会重试。
  */
 export async function fetchLegGeometries(
   AMap: any,
   legs: LegEndpoints[],
   mode: TravelMode,
-): Promise<LegGeometry[] | null> {
+  city = '上海',
+  options: { timeoutMs?: number; gapMs?: number; cancelled?: () => boolean; onProgress?: (items: Array<LegGeometry | null>) => void } = {},
+): Promise<Array<LegGeometry | null> | null> {
   if (!AMap || !legs.length) return null
-  if (typeof AMap.Walking !== 'function' || typeof AMap.Driving !== 'function') return null
-  if ((mode === 'transit' || mode === 'subway') && typeof AMap.Transfer !== 'function') return null
 
-  const results: LegGeometry[] = []
+  const results: Array<LegGeometry | null> = []
   for (const leg of legs) {
+    if (options.cancelled?.()) return null
+    if (leg.skip) { results.push(null); continue }
     const legMode = leg.mode ?? mode
-    const key = cacheKey(legMode, leg.from, leg.to)
+    const key = cacheKey(legMode, leg.from, leg.to, city)
     const cached = cache.get(key)
     if (cached && cached.resolvedMode !== 'none') {
       results.push(cached)
+      options.onProgress?.([...results])
       continue
     }
-    const geometry = await resolveLeg(AMap, leg, legMode)
+    const geometry = await resolveLeg(AMap, leg, legMode, city, options.timeoutMs ?? SEARCH_TIMEOUT_MS)
+    if (options.cancelled?.()) return null
     if (geometry.resolvedMode !== 'none') cache.set(key, geometry)
     results.push(geometry)
-    await sleep(SERIAL_GAP_MS)
+    options.onProgress?.([...results])
+    await sleep(options.gapMs ?? SERIAL_GAP_MS)
   }
 
   return results

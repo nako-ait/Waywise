@@ -150,7 +150,9 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
   }
 
   const meta = plan.solver
-  const isAmap = meta?.dataSource === 'amap'
+  const isAmap = [...day.stops.map(stop => stop.transportFromPrev), day.returnLeg]
+    .every(leg => leg?.dataSource === 'amap' && leg.approx === false)
+  const partiallyEstimated = meta?.dataSource === 'amap' && !isAmap
   const returnMode = modeStyle(day.returnLeg?.transportMode ?? day.returnLeg?.mode ?? meta?.mode ?? currentMode)
   const totals = meta?.totalStats ?? day.stats
   const dropped = (meta?.dropped ?? []) as Array<{ id?: string; name: string; reason: string; day?: string }>
@@ -188,7 +190,7 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
           </span>
         </div>
         <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-400">
-          <span className="rounded bg-slate-100 px-1.5 py-0.5">{isAmap ? '高德路线' : '离线估算'}</span>
+          <span className="rounded bg-slate-100 px-1.5 py-0.5">{isAmap ? '高德路线' : partiallyEstimated ? '部分路段为估算' : '离线估算'}</span>
           {!readOnly && <button className="ml-auto rounded border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 disabled:opacity-50" disabled={planning} onClick={() => void run()}>{planning ? '核算中…' : '重新核算交通'}</button>}
           {meta?.name && <span className="rounded bg-slate-100 px-1.5 py-0.5">{meta.name}</span>}
           {isMultiDay && <span>第 {dayIndex + 1}/{dayCount} 天</span>}
