@@ -25,6 +25,7 @@ SUITES: list[tuple[str, str, str]] = [
     ("test_module3.py", "模块 3", "多日分天 + 等时圈"),
     ("test_module4.py", "模块 4", "AI 解析 / 一句话重规划 / 解释"),
     ("test_transport_policy.py", "交通决策", "跨江长步行 / 手动方式 / 体力与时间窗"),
+    ("test_trip_endpoints.py", "城市与终点", "多城市公交 / 终点参与排序和统计 / 多日与旧行程兼容"),
     ("test_agent_transport.py", "交通提案", "混合交通比较 / 往返统计 / 预览与执行一致"),
     ("test_taxi_data.py", "打车数据", "车辆出入口 / 接口费用 / 时效与缓存"),
     ("test_llm_probe.py", "模型连接", "思考模型输出额度 / 截断诊断 / 敏感内容不回显"),

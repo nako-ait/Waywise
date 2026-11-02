@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { CityPoi } from '@/data/cities'
-import { SHANGHAI_POIS } from '@/data/shanghaiPois'
+import { getCity } from '@/data/cities'
 import { useTripStore } from '@/store/useTripStore'
 import Modal from './Modal'
 
@@ -8,7 +8,7 @@ interface Props {
   open: boolean
   onClose: () => void
   onAdded?: () => void
-  /** 该城市可选的地点点池；不传就用上海 276 条 */
+  /** 可选地点池；未提供时使用当前城市的地标 */
   pool?: CityPoi[]
 }
 
@@ -17,7 +17,10 @@ export default function AddStopDialog({ open, onClose, onAdded, pool }: Props) {
   const [keyword, setKeyword] = useState('')
   const addDestinations = useTripStore((s) => s.addDestinations)
   const showToast = useTripStore((s) => s.showToast)
-  const source: CityPoi[] = pool && pool.length ? pool : SHANGHAI_POIS
+  const cityId = useTripStore(s => s.cityId)
+  const city = getCity(cityId)
+  const source: CityPoi[] = pool ?? city.pois
+  useEffect(() => { setKeyword('') }, [cityId])
 
   const results = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
@@ -62,12 +65,12 @@ export default function AddStopDialog({ open, onClose, onAdded, pool }: Props) {
   }
 
   return (
-    <Modal open={open} title="添加地点" desc="从本地 276 个上海 POI 里选一个（离线可用）。" onClose={onClose}>
+    <Modal open={open} title="添加地点" desc={`从${city.name}的 ${source.length} 个本地地标中选择（离线可用）。更多地点可在地图搜索。`} onClose={onClose}>
       <input
         autoFocus
         value={keyword}
         onChange={(event) => setKeyword(event.target.value)}
-        placeholder="搜地名 / 类型，如 外滩、咖啡、公园"
+        placeholder={`搜索${city.name}的地名或类型`}
         className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs outline-none focus:border-slate-800"
       />
       <div className="tc-scroll mt-2 max-h-64 space-y-1 overflow-y-auto">

@@ -6,6 +6,7 @@
  * 作为"路线示意"——足够看出形状，也不会有版权/跨域问题。
  */
 import type { Hotel, PlanResponse } from '@/types'
+import { dayEndPoint, dayFinishName } from '@/lib/tripEndpoints'
 
 const WIDTH = 1080
 const PAD = 56
@@ -33,7 +34,7 @@ export function exportTripLongImage({ title, hotel, plan }: Options) {
 
   // 先算高度
   let height = 300 // 头部 + 地图
-  for (const day of days) height += 70 + day.stops.length * lineHeight + 24
+  for (const day of days) height += 70 + day.stops.length * lineHeight + 24 + lineHeight
   height += 140 // 统计 + 页脚
 
   const scale = 2 // 高分屏
@@ -71,7 +72,7 @@ export function exportTripLongImage({ title, hotel, plan }: Options) {
   ctx.lineWidth = 2
   ctx.stroke()
 
-  const polylines = plan.polylines ?? days.flatMap((day) => day.polylines ?? [])
+  const polylines = days.length ? days.flatMap((day) => day.polylines ?? []) : plan.polylines ?? []
   const points = polylines.flat()
   if (points.length > 1) {
     const lngs = points.map((p) => p[0])
@@ -144,7 +145,12 @@ export function exportTripLongImage({ title, hotel, plan }: Options) {
       ctx.fillText(`${stop.arriveTime}–${stop.leaveTime}`, WIDTH - PAD - 120, cursor + 8)
       cursor += lineHeight
     }
-    cursor += 24
+    ctx.fillStyle = '#047857'
+    ctx.font = '500 18px system-ui, "Microsoft YaHei", sans-serif'
+    const end = dayEndPoint(day, hotel)
+    const finish = end ? `到达终点：${dayFinishName(day, hotel)}` : `在 ${dayFinishName(day, hotel)} 结束`
+    ctx.fillText(`${finish}${day.returnTime ? ` · ${day.returnTime}` : ''}`, PAD + 24, cursor + 8, WIDTH - PAD * 2 - 24)
+    cursor += lineHeight + 24
   }
 
   // 统计 + 页脚

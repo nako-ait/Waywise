@@ -35,6 +35,7 @@ def _index(ctx: dict[str, Any]) -> dict[str, dict]:
 def _base_request(ctx: dict) -> PlanRequest:
     return PlanRequest(
         hotel=ctx["hotel"], destinations=ctx.get("destinations") or [],
+        cityName=ctx.get("city_name"), endMode=ctx.get("endMode", "return"), endPoint=ctx.get("endPoint"),
         days=ctx["days"], mode=ctx["mode"], weights=Weights(**ctx["weights"]),
         options=PlanOptions(**ctx["options"]), legModes=ctx.get("legModes"),
         limits=TripLimits(**ctx["limits"]) if ctx.get("limits") else None,
@@ -48,14 +49,16 @@ def _summary(plan, label: str) -> dict:
     ) if leg is not None]
     modes = sorted({leg.transportMode or leg.mode for leg in legs})
     return {
-        "label": label, "includesReturn": True,
+        "label": label, "includesReturn": any(day.endMode == "return" and day.returnLeg for day in plan.days),
+        "endMode": plan.days[-1].endMode if plan.days else "return",
         "cost": round(sum(leg.cost for leg in legs), 2),
         "transitMin": round(sum(leg.durationMin for leg in legs), 1),
         "walkKm": round(sum(leg.walkKm for leg in legs), 2),
         "transfers": sum(leg.transfers for leg in legs), "actualModes": modes,
         "costApprox": any(leg.costApprox for leg in legs),
         "approx": any(leg.approx or leg.dataSource != "amap" for leg in legs),
-        "days": [{"order": [s.name for s in day.stops], "returnTime": day.returnTime}
+        "days": [{"order": [s.name for s in day.stops], "returnTime": day.returnTime,
+                  "endMode": day.endMode, "endPoint": day.endPoint.model_dump() if day.endPoint else None}
                  for day in plan.days],
         "dropped": (plan.solver or {}).get("dropped") or [],
         "violations": ((plan.solver or {}).get("limits") or {}).get("violations") or [],
@@ -119,7 +122,7 @@ async def prepare_transport_proposal(proposal: agent.Proposal, ctx: dict, eviden
         stays = "；".join(f"「{s['name']}」停留 {s['stayMin']} 分钟" for s in proposal.ops["stayChanges"])
         proposal.reply = f"准备把{stays}，确认后重新生成时间安排。"
         return proposal
-    proposal.reply = "准备按你的偏好逐段安排交通，确认后生成；含返程的时间、步行量和费用见下方。"
+    proposal.reply = "准备按你的偏好逐段安排交通，确认后生成；全程的时间、步行量和费用见下方。"
     try:
         req, _, _ = agent.request_from_ops(_base_request(ctx), proposal.ops)
         if not any(d.selected for d in req.destinations):
@@ -145,8 +148,9 @@ async def prepare_transport_proposal(proposal: agent.Proposal, ctx: dict, eviden
             mode_labels = "＋".join("公共交通" if m == "transit" else agent.MODE_LABELS.get(m, m)
                                     for m in summary["actualModes"]) or "无交通段"
             basis = "离线估算" if summary["approx"] else "路线试算"
+            finish_basis = "含返程" if summary.get("endMode", "return") == "return" else "按所选终点统计"
             proposal.preview.append(
-                f"{summary['label']}（{mode_labels}，{basis}，含返程）："
+                f"{summary['label']}（{mode_labels}，{basis}，{finish_basis}）："
                 f"交通约{summary['transitMin']:.0f}分钟，接驳步行约{summary['walkKm']:.1f}公里，"
                 f"费用约¥{summary['cost']:.0f}，换乘{summary['transfers']}次"
             )

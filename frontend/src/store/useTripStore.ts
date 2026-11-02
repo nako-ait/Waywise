@@ -19,6 +19,7 @@ import type {
   PlanResponse,
   SharedTripData,
   TravelMode,
+  TripEndMode,
   Weights,
 } from '@/types'
 import { DEFAULT_WEIGHTS } from '@/types'
@@ -104,6 +105,8 @@ export interface NewDestinationInput {
 export interface TripState {
   /** 酒店：固定起点 */
   hotel: Hotel
+  endMode: TripEndMode
+  endPoint: Hotel | null
   /** 酒店是否由用户主动确认过（未确认时 UI 提示搜索） */
   hotelConfirmed: boolean
   /** 目的地全集（候选 + 选中） */
@@ -159,6 +162,8 @@ export interface TripState {
 
   // —— actions ——
   setHotel: (hotel: Hotel) => void
+  setEndMode: (mode: TripEndMode) => void
+  setEndPoint: (point: Hotel) => void
   addDestination: (input: NewDestinationInput) => Destination
   addDestinations: (inputs: NewDestinationInput[]) => { added: number; skipped: number }
   updateDestination: (id: string, patch: Partial<Destination>) => void
@@ -234,7 +239,7 @@ export interface TripState {
 
 /** 输入指纹：酒店 + 选中集合 + 方式 + 天数 + 权重 + 时间设置 */
 function computeSignature(
-  state: Pick<TripState, 'hotel' | 'destinations' | 'mode' | 'days' | 'weights' | 'options'> & {
+  state: Pick<TripState, 'hotel' | 'destinations' | 'mode' | 'days' | 'weights' | 'options' | 'cityId' | 'endMode' | 'endPoint'> & {
     legModes?: Record<string, string>
   },
 ): string {
@@ -243,6 +248,9 @@ function computeSignature(
     .map((d) => `${d.id}|${d.stayMin ?? 60}|${d.lng.toFixed(5)},${d.lat.toFixed(5)}`)
   return JSON.stringify({
     hotel: `${state.hotel.lng.toFixed(5)},${state.hotel.lat.toFixed(5)}`,
+    cityId: state.cityId,
+    endMode: state.endMode,
+    endPoint: state.endMode === 'custom' && state.endPoint ? `${state.endPoint.lng.toFixed(5)},${state.endPoint.lat.toFixed(5)}` : null,
     picked,
     mode: state.mode,
     days: state.days,
@@ -374,6 +382,8 @@ export function snapshotTrip(state: TripState): SharedTripData {
   return {
     version: 1,
     cityId: state.cityId,
+    endMode: state.endMode,
+    endPoint: state.endPoint ? { ...state.endPoint } : null,
     createdAt: new Date().toISOString(),
     hotel: {
       name: state.hotel.name,
@@ -394,6 +404,8 @@ export const useTripStore = create<TripState>()(
   persist(
     (set, get) => ({
       hotel: DEFAULT_HOTEL,
+      endMode: 'return',
+      endPoint: null,
       hotelConfirmed: false,
       destinations: [],
       toast: null,
@@ -431,6 +443,8 @@ export const useTripStore = create<TripState>()(
 
       // 换酒店会让等时圈失效，顺手清掉
       setHotel: (hotel) => set({ hotel, hotelConfirmed: true, isochrone: null }),
+      setEndMode: (endMode) => set({ endMode, selectedLeg: null }),
+      setEndPoint: (endPoint) => set({ endPoint, endMode: 'custom', selectedLeg: null }),
 
       addDestination: (input) => {
         const state = get()
@@ -491,6 +505,8 @@ export const useTripStore = create<TripState>()(
         const city = getCity(cityId)
         set({
           cityId: city.id,
+          endMode: 'return',
+          endPoint: null,
           destinations: [],
           plan: null,
           planSignature: null,
@@ -525,7 +541,9 @@ export const useTripStore = create<TripState>()(
 
       resetAll: () =>
         set({
-          hotel: DEFAULT_HOTEL,
+          hotel: getCity(get().cityId).hotel,
+          endMode: 'return',
+          endPoint: null,
           hotelConfirmed: false,
           destinations: [],
           days: 1,
@@ -582,6 +600,8 @@ export const useTripStore = create<TripState>()(
           ?? (nearest && haversineM(hotel, nearest.center) < 100_000 ? nearest.id : get().cityId)
         set({
           cityId,
+          endMode: data?.endMode === 'custom' || data?.endMode === 'last_stop' ? data.endMode : 'return',
+          endPoint: normalizeHotel(data?.endPoint),
           hotel,
           hotelConfirmed: true,
           destinations,
@@ -708,6 +728,8 @@ export const useTripStore = create<TripState>()(
       // 只持久化业务数据与视野，运行时状态（mapReady / planning）不落盘
       partialize: (s) => ({
         hotel: s.hotel,
+        endMode: s.endMode,
+        endPoint: s.endPoint,
         hotelConfirmed: s.hotelConfirmed,
         destinations: s.destinations,
         cityId: s.cityId,

@@ -14,6 +14,7 @@ from datetime import date, timedelta
 from ..config import settings
 from ..models import (
     Destination,
+    Hotel,
     PlanDay,
     PlanDayStats,
     PlanRequest,
@@ -37,6 +38,23 @@ from .tsp_core import (
     normalize_weights,
 )
 from .vrp import split_into_days
+
+
+def _finish_matrix(matrix: Matrix, full: Matrix, end_index: int | None, mode: str) -> Matrix:
+    """Split-depot formulation: departure row remains the origin; depot incoming
+    arcs represent the chosen terminal. Free-end incoming arcs have zero cost.
+    This gives both OR-Tools and the fallback the same open-path objective.
+    """
+    if mode == "return":
+        return matrix
+    changes = {}
+    for name in ("durations", "distances", "costs", "walk_km", "transfers"):
+        original = getattr(matrix, name)
+        values = [list(row) for row in original]
+        for i in range(matrix.size):
+            values[i][0] = getattr(full, name)[i][end_index] if mode == "custom" and end_index is not None and i else 0
+        changes[name] = values
+    return replace(matrix, **changes)
 
 
 def _selected(req: PlanRequest) -> list[Destination]:
@@ -148,6 +166,8 @@ async def _plan_one_day(
     """排好一天：求解 → 逐段精确路径 → 时间轴 → 统计。"""
     notes: list[str] = []
     mode_spec = get_mode(req.mode)
+    has_terminal_leg = req.endMode != "last_stop"
+    terminal_point = (req.endPoint.lng, req.endPoint.lat) if req.endMode == "custom" and req.endPoint else None
 
     # ---- 求解 ----
     # 注意：多日模式下传进来的是「全部点」的矩阵，而 nodes 只有本日的点。
@@ -210,18 +230,19 @@ async def _plan_one_day(
         if not order:
             legs, leg_mode_keys, route_notes = [], [], []
             break
-        order_with_hotel = [0] + order + [0]
+        order_with_hotel = [0] + order + ([0] if has_terminal_leg else [])
         pairs = list(zip(order_with_hotel, order_with_hotel[1:]))
-        keys = [index_to_dest[index].id for index in order] + ["__return__"]
+        keys = [index_to_dest[index].id for index in order] + (["__return__"] if has_terminal_leg else [])
         preferred_modes = [get_mode(leg_modes_req.get(key, mode_spec.key)).key for key in keys]
         windows = [
             (*node_window(nodes_by_index[index], day_start_min, day_end_min), stay_of_global[index])
             for index in order
-        ] + [(day_start_min, day_end_min, 0)]
+        ] + ([(day_start_min, day_end_min, 0)] if has_terminal_leg else [])
         legs, leg_mode_keys, route_notes = await select_leg_routes(
             points=points, pairs=pairs, preferred_modes=preferred_modes,
             locked=[key in leg_modes_req for key in keys], matrix=matrix, weights=weights,
             windows=windows, start_min=day_start_min,
+            end_point=terminal_point,
         )
         now = float(day_start_min)
         invalid_index: int | None = None
@@ -244,11 +265,13 @@ async def _plan_one_day(
                 leave=leave, stay=stay, leg=leg,
             ))
             now = leave
-        if invalid_index is None and now + legs[-1].duration_min > day_end_min + 1e-6:
+        finish_min = now + (legs[-1].duration_min if has_terminal_leg else 0)
+        if invalid_index is None and finish_min > day_end_min + 1e-6:
             invalid_index = order[-1]
+            finish_action = "回酒店" if req.endMode == "return" else "到达指定终点" if req.endMode == "custom" else "结束行程"
             reason = (
-                f"按交通路线推演将于 {min_to_hhmm(now + legs[-1].duration_min)} 回酒店，"
-                f"超过 {min_to_hhmm(day_end_min)}；保留回程时间后无法排入"
+                f"按交通路线推演将于 {min_to_hhmm(finish_min)} {finish_action}，"
+                f"超过 {min_to_hhmm(day_end_min)}；保留终段交通时间后无法排入"
             )
         if invalid_index is None:
             break
@@ -309,7 +332,7 @@ async def _plan_one_day(
 
     # 回程段（最后一站 → 酒店）单独回传给前端，时间轴才能像其他段一样显示时长/里程
     return_leg: TransportLeg | None = None
-    if legs and order:
+    if has_terminal_leg and legs and order:
         back = legs[-1]
         return_leg = TransportLeg(
             mode=leg_mode_keys[-1] if leg_mode_keys else mode_spec.key,
@@ -334,8 +357,12 @@ async def _plan_one_day(
     # 矩阵估算值，就会出现「16:54 离开 + 回程 218 分钟 = 14:24 到酒店」这种自相矛盾。
     # 两者口径不同（矩阵用于排序、方向 API 用于展示），展示必须以实算为准。
     solver_return = result.return_min
-    computed_return = raw_stops[-1].leave + legs[-1].duration_min if (raw_stops and legs) else float(day_start_min)
+    computed_return = raw_stops[-1].leave + (legs[-1].duration_min if has_terminal_leg else 0) if raw_stops else None
     return_min = computed_return if computed_return is not None else solver_return
+    if not raw_stops:
+        return_min = None
+        if req.endMode == "custom":
+            notes.append("没有排出经过所选地点到达指定终点的可执行行程，请增加时间或减少地点")
     if (
         computed_return is not None
         and solver_return is not None
@@ -362,6 +389,10 @@ async def _plan_one_day(
     return _DayResult(
         day=PlanDay(
             date=date_str,
+            endMode=req.endMode,
+            endPoint=req.endPoint if req.endMode == "custom" else req.hotel if req.endMode == "return" else (
+                Hotel(name=stops[-1].name, lng=stops[-1].lng, lat=stops[-1].lat) if stops else None
+            ),
             title=title,
             stops=stops,
             stats=stats,
@@ -381,6 +412,14 @@ async def _plan_one_day(
 
 
 async def create_plan(req: PlanRequest) -> PlanResponse:
+    token = amap_client.routing_city.set((req.cityName or "").strip())
+    try:
+        return await _create_plan(req)
+    finally:
+        amap_client.routing_city.reset(token)
+
+
+async def _create_plan(req: PlanRequest) -> PlanResponse:
     """编译路书：单日直接排；多日先地理聚类分天，再每天各自求 TSP。"""
     started = time.perf_counter()
     picked = _selected(req)
@@ -398,7 +437,9 @@ async def create_plan(req: PlanRequest) -> PlanResponse:
 
     # ---------- 1. 距离矩阵（所有点一起算，分天后再取子矩阵） ----------
     points = [hotel_point] + [(d.lng, d.lat) for d in picked]
-    matrix: Matrix = await build_matrix(points, mode_spec.key)
+    full_points = points + ([(req.endPoint.lng, req.endPoint.lat)] if req.endMode == "custom" and req.endPoint else [])
+    full_matrix: Matrix = await build_matrix(full_points, mode_spec.key)
+    matrix = amap_client.sub_matrix(full_matrix, list(range(len(points)))) if len(full_points) > len(points) else full_matrix
     warnings.extend(matrix.warnings)
 
     # ---------- 2. 建模 ----------
@@ -426,6 +467,9 @@ async def create_plan(req: PlanRequest) -> PlanResponse:
         warnings.extend(split.notes)
     else:
         groups = [[node.index for node in nodes]]
+    active_indexes = {node.index for node in nodes}
+    groups = [[index for index in group if index in active_indexes] for group in groups]
+    groups = [group for group in groups if group]
 
     # ---------- 4. 逐天排 ----------
     day_results: list[_DayResult] = []
@@ -433,10 +477,12 @@ async def create_plan(req: PlanRequest) -> PlanResponse:
         if not group:
             continue
         day_nodes = [node for node in nodes if node.index in set(group)]
+        day_req = req if day_index == len(groups) - 1 else req.model_copy(update={"endMode": "return", "endPoint": None})
+        day_matrix = _finish_matrix(matrix, full_matrix, len(points) if req.endMode == "custom" else None, day_req.endMode)
         day_results.append(
             await _plan_one_day(
-                req=req,
-                matrix=matrix,
+                req=day_req,
+                matrix=day_matrix,
                 points=points,
                 nodes=day_nodes,
                 index_to_dest=index_to_dest,
@@ -451,10 +497,13 @@ async def create_plan(req: PlanRequest) -> PlanResponse:
 
     if not day_results:
         return PlanResponse(
-            days=[PlanDay(date=date.today().isoformat(), stops=[], stats=PlanDayStats())],
+            days=[PlanDay(date=date.today().isoformat(), stops=[], stats=PlanDayStats(),
+                          endMode=req.endMode, endPoint=req.endPoint if req.endMode == "custom" else req.hotel if req.endMode == "return" else None)],
             explanation="本日没有可排入行程的目的地，请检查营业时间与停留时长设置。",
             polylines=[],
-            solver={"name": "noop", "dataSource": matrix.data_source, "warnings": warnings},
+            solver={"name": "noop", "dataSource": matrix.data_source, "warnings": warnings,
+                    "dropped": pre_dropped, "endMode": req.endMode, "cityName": req.cityName,
+                    "visitedCount": 0, "requestedCount": len(picked)},
         )
 
     for result in day_results:
@@ -508,6 +557,8 @@ async def create_plan(req: PlanRequest) -> PlanResponse:
         polylines=day_results[0].polylines,
         solver={
             "routingVersion": amap_client.ROUTING_DATA_VERSION,
+            "cityName": req.cityName,
+            "endMode": req.endMode,
             "name": day_results[0].solver_name,
             "objectiveMinutes": round(sum(r.objective for r in day_results), 2),
             "dataSource": matrix.data_source,
@@ -589,22 +640,23 @@ def _explain_day(
         return "本日没有可排入行程的目的地。"
 
     parts = [
-        f"按实际路线逐段选择交通，依次游览 {len(stops)} 个目的地后返回酒店：",
+        f"按实际路线逐段选择交通，依次游览 {len(stops)} 个目的地：",
         " → ".join(stop.name for stop in stops) + "。",
     ]
     first = stops[0]
     if first.transportFromPrev:
         parts.append(
-            f"把「{first.name}」放在第一站，是因为它到酒店只要 "
+            f"第一站为「{first.name}」，从起点出发约需 "
             f"{first.transportFromPrev.durationMin:.0f} 分钟"
-            f"（{first.transportFromPrev.distanceKm:.1f} km），开局最省路上时间。"
+            f"（{first.transportFromPrev.distanceKm:.1f} km）。"
         )
     parts.append(
         f"全天交通 {stats.totalTransitMin:.0f} 分钟、步行 {stats.totalWalkKm:.2f} km、"
         f"花费 {stats.totalCost:.1f} 元。"
     )
     if return_min:
-        parts.append(f"预计 {min_to_hhmm(return_min)} 回到酒店。")
+        finish = "返回起点" if req.endMode == "return" else f"到达「{req.endPoint.name}」" if req.endMode == "custom" and req.endPoint else f"在「{stops[-1].name}」结束"
+        parts.append(f"预计 {min_to_hhmm(return_min)} {finish}。")
     if overtime_min > 0.5:
         parts.append(f"比计划收工时间晚了 {overtime_min:.0f} 分钟。")
     if lunch_min > 0:
@@ -642,7 +694,7 @@ def _explain_overall(
         parts.append(
             f"「{req.hotel.name}」出发的 {len(results)} 日路书：先按地理位置把 "
             f"{total_requested(results)} 个目的地聚成 {len(results)} 天，"
-            f"再对每天分别求最优顺序（每天从酒店出发、回到酒店）。"
+            f"再对每天分别求最优顺序（前几天返回起点，最后一天按终点设置结束）。"
         )
     else:
         parts.append(f"「{req.hotel.name}」出发的一日路书，交通方式按实际路线与偏好逐段选择。")
@@ -656,6 +708,10 @@ def _explain_overall(
             f"（{stops[0].arriveTime}–{result.day.returnTime or '—'}，"
             f"步行 {result.day.stats.totalWalkKm} km、花费 {result.day.stats.totalCost} 元）。"
         )
+        if result.day.endMode == "custom" and result.day.endPoint:
+            parts.append(f"终点为「{result.day.endPoint.name}」，已包含最后一段交通。")
+        elif result.day.endMode == "last_stop":
+            parts.append(f"在「{stops[-1].name}」结束，不安排回程。")
 
     parts.append(
         f"全部行程合计：交通 {total.totalTransitMin:.0f} 分钟、步行 {total.totalWalkKm:.2f} km、"
@@ -676,6 +732,14 @@ def total_requested(results: list[_DayResult]) -> int:
 
 
 async def prewarm(req: PlanRequest) -> dict:
+    token = amap_client.routing_city.set((req.cityName or "").strip())
+    try:
+        return await _prewarm(req)
+    finally:
+        amap_client.routing_city.reset(token)
+
+
+async def _prewarm(req: PlanRequest) -> dict:
     """演示前预热：把距离矩阵与每一段路径都算一遍并写进缓存。
 
     现场演示时所有高德请求都会命中 SQLite 缓存，既快又不怕限流。
@@ -692,6 +756,8 @@ async def prewarm(req: PlanRequest) -> dict:
         }
 
     points = [(req.hotel.lng, req.hotel.lat)] + [(d.lng, d.lat) for d in picked]
+    if req.endMode == "custom" and req.endPoint:
+        points.append((req.endPoint.lng, req.endPoint.lat))
     matrix = await build_matrix(points, req.mode)
     legs = await asyncio.gather(
         *[

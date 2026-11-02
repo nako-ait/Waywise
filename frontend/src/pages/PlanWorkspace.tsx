@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { aiApply, aiTurn } from '@/api/client'
 import AddStopDialog from '@/components/AddStopDialog'
 import ChatDock, { type ChatMessage } from '@/components/ChatDock'
-import HotelPanel from '@/components/HotelPanel'
+import TripEndpointsPanel from '@/components/TripEndpointsPanel'
 import MapView from '@/components/MapView'
 import PoiQuickAdd from '@/components/PoiQuickAdd'
 import TimelineVertical from '@/components/TimelineVertical'
@@ -63,7 +63,6 @@ export default function PlanWorkspace() {
   const [chatKey, setChatKey] = useState<string>(() => activeTripId ?? DRAFT_CHAT_KEY)
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatHistory(activeTripId ?? DRAFT_CHAT_KEY))
   const [busy, setBusy] = useState(false)
-  const [hotelOpen, setHotelOpen] = useState(false)
   const [cityAddOpen, setCityAddOpen] = useState(false)
   const [mobilePanel, setMobilePanel] = useState<'map' | 'chat' | 'itinerary'>('map')
   const startedRef = useRef(false)
@@ -77,8 +76,6 @@ export default function PlanWorkspace() {
     })
     return () => cancelAnimationFrame(frame)
   }, [mobilePanel])
-
-  const hotel = useTripStore((s) => s.hotel)
 
   const title = trips.find((trip) => trip.id === activeTripId)?.title ?? preset?.presetName ?? '未命名路书'
 
@@ -366,9 +363,8 @@ export default function PlanWorkspace() {
           <MapView />
 
           <div className="absolute left-3 top-3 z-20 w-[320px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_18px_40px_-28px_rgba(15,23,42,.6)]">
-            {city.id === 'shanghai' ? (
-              <PoiQuickAdd />
-            ) : (
+            <PoiQuickAdd />
+            {city.id !== 'shanghai' && (
               <div className="px-3 py-2">
                 <div className="flex items-center justify-between">
                   <span className="text-[12px] font-semibold text-slate-700">
@@ -392,7 +388,7 @@ export default function PlanWorkspace() {
                   className="mt-2 text-[10px] text-slate-400 hover:text-slate-700"
                   onClick={() => setCityAddOpen(true)}
                 >
-                  搜索更多 ›
+                  全部本地地标 ›
                 </button>
               </div>
             )}
@@ -401,22 +397,7 @@ export default function PlanWorkspace() {
 
         {/* 右栏：出发酒店 + 竖排路书 */}
         <aside data-panel="itinerary" className="waywise-workspace-itinerary flex w-[340px] shrink-0 flex-col border-l border-slate-200 bg-white">
-          <button
-            className="flex w-full shrink-0 items-center gap-2 border-b border-slate-200 px-3 py-2 text-left hover:bg-slate-50"
-            onClick={() => setHotelOpen((value) => !value)}
-          >
-            <span className="h-2.5 w-2.5 rounded-[3px] bg-[#1d4ed8]" />
-            <span className="text-[11.5px] font-medium text-slate-700">出发地点</span>
-            <span className="min-w-0 truncate text-[11px] text-slate-500">{hotel.name}</span>
-            <span className="ml-auto shrink-0 text-[10px] text-slate-400">
-              {hotelOpen ? '收起' : '更换'}
-            </span>
-          </button>
-          {hotelOpen && (
-            <div className="tc-scroll max-h-[45%] shrink-0 overflow-y-auto border-b border-slate-200">
-              <HotelPanel />
-            </div>
-          )}
+          <TripEndpointsPanel />
           <div className="min-h-0 flex-1">
             <TimelineVertical />
           </div>

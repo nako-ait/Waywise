@@ -11,6 +11,7 @@ export type DestinationSource = 'map-click' | 'search' | 'ai' | 'import'
 
 /** 交通方式（P1 全部支持） */
 export type TravelMode = 'walk' | 'transit' | 'subway' | 'taxi' | 'drive'
+export type TripEndMode = 'return' | 'last_stop' | 'custom'
 
 export const TRAVEL_MODE_LABEL: Record<TravelMode, string> = {
   walk: '步行',
@@ -156,6 +157,8 @@ export interface PlanDayStats {
 
 export interface PlanDay {
   date: string
+  endMode?: TripEndMode
+  endPoint?: Hotel | null
   stops: PlanStop[]
   stats: PlanDayStats
   /** 回到酒店的时刻 HH:mm */
@@ -204,10 +207,13 @@ export interface PlanOptions {
 
 export interface PlanRequest {
   hotel: { lng: number; lat: number; name: string }
+  cityName?: string
+  endMode?: TripEndMode
+  endPoint?: Hotel | null
   destinations: Destination[]
   days: number
   mode: TravelMode
-  /** 逐段覆盖：目的地 id → 该段交通方式；"__return__" 表示回酒店那一段 */
+  /** 逐段覆盖：目的地 id → 该段交通方式；"__return__" 表示最后到达终点的一段 */
   legModes?: Record<string, TravelMode>
   weights: Weights
   naturalLanguage?: string
@@ -218,7 +224,7 @@ export interface PlanRequest {
 export interface PlanResponse {
   days: PlanDay[]
   explanation: string
-  /** 每一段一条折线（[lng, lat] 数组），长度 = 站点数 + 1 */
+  /** 每一段一条折线；自由结束为站点数，其余模式为站点数 + 1 */
   polylines?: Array<Array<[number, number]>>
   solver?: PlanSolverMeta
 }
@@ -368,6 +374,8 @@ export type SharedDestination = Omit<Destination, 'id'> & { id?: string }
 /** POST /api/share 的 trip_data：一份行程的完整"输入态" */
 export interface SharedTripData {
   cityId?: string
+  endMode?: TripEndMode
+  endPoint?: Hotel | null
   version?: number
   createdAt?: string
   hotel: Pick<Hotel, 'name' | 'lng' | 'lat'> & { address?: string }

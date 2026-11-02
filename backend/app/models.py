@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+import math
 
 DestinationSource = Literal["map-click", "search", "ai", "import"]
 TravelMode = Literal["walk", "transit", "subway", "taxi", "drive"]
+TripEndMode = Literal["return", "last_stop", "custom"]
 
 
 class Destination(BaseModel):
@@ -134,12 +136,14 @@ class PlanDayStats(BaseModel):
 
 class PlanDay(BaseModel):
     date: str
+    endMode: TripEndMode = "return"
+    endPoint: Hotel | None = None
     stops: list[PlanStop] = Field(default_factory=list)
     stats: PlanDayStats = Field(default_factory=PlanDayStats)
-    # 回到酒店的时刻（HH:mm）与超时分钟数（迟到惩罚对应的可解释结果）
+    # 当日结束时刻（HH:mm）；保留旧字段名以兼容旧行程。
     returnTime: str | None = None
     overtimeMin: float = 0.0
-    # 「最后一站 → 酒店」这一段。必须显式返回：
+    # 「最后一站 → 当日终点」这一段；last_stop 模式为 None。必须显式返回：
     # 否则前端画得出回程折线却拿不到它的时长/里程，
     # 时间轴上的「预计 X 点回到酒店」就会显得像凭空出现的数字。
     returnLeg: TransportLeg | None = None
@@ -168,15 +172,29 @@ class TripLimits(BaseModel):
 
 class PlanRequest(BaseModel):
     hotel: Hotel
+    cityName: str | None = Field(default=None, max_length=40)
+    endMode: TripEndMode = "return"
+    endPoint: Hotel | None = None
     destinations: list[Destination]
     days: int = 1
     mode: TravelMode = "transit"
-    # 逐段覆盖：目的地 id → 该段交通方式；"__return__" 表示回酒店那一段
+    # 逐段覆盖：目的地 id → 该段交通方式；"__return__" 表示到达当日终点的一段
     legModes: dict[str, str] | None = None
     limits: TripLimits | None = None
     weights: Weights = Field(default_factory=Weights)
     naturalLanguage: str | None = None
     options: PlanOptions = Field(default_factory=PlanOptions)
+
+    @model_validator(mode="after")
+    def validate_endpoint(self):
+        if self.endMode == "custom" and self.endPoint is None:
+            raise ValueError("指定终点时需要提供终点地点")
+        if self.endPoint is not None and not (
+            math.isfinite(self.endPoint.lng) and math.isfinite(self.endPoint.lat)
+            and -180 <= self.endPoint.lng <= 180 and -90 <= self.endPoint.lat <= 90
+        ):
+            raise ValueError("终点坐标不合法")
+        return self
 
 
 class PlanResponse(BaseModel):

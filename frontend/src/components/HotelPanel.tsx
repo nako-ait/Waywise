@@ -11,19 +11,27 @@ import type { PoiPreset } from '@/types'
  * - 酒店 = 固定起点，蓝色标记，UI 上不提供「删除/取消」入口
  * - 按当前城市搜索；服务器 Web 服务优先，SDK 备用
  */
-export default function HotelPanel() {
+export default function HotelPanel({ target = 'origin', onPicked }: { target?: 'origin' | 'end'; onPicked?: () => void }) {
   const cityId = useTripStore((s) => s.cityId)
   const city = getCity(cityId)
-  const hotel = useTripStore((s) => s.hotel)
-  const hotelConfirmed = useTripStore((s) => s.hotelConfirmed)
-  const setHotel = useTripStore((s) => s.setHotel)
+  const origin = useTripStore((s) => s.hotel)
+  const endPoint = useTripStore((s) => s.endPoint)
+  const originConfirmed = useTripStore((s) => s.hotelConfirmed)
+  const setOrigin = useTripStore((s) => s.setHotel)
+  const setEndPoint = useTripStore((s) => s.setEndPoint)
+  const hotel = target === 'end' ? endPoint : origin
+  const hotelConfirmed = target === 'end' ? Boolean(endPoint) : originConfirmed
+  const setHotel = target === 'end' ? setEndPoint : setOrigin
+  const label = target === 'end' ? '终点' : '出发地点'
 
   const [keyword, setKeyword] = useState('')
   const [results, setResults] = useState<PoiPreset[]>([])
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const searchId = useRef(0)
-  const quickKeywords = city.id === 'shanghai'
+  const quickKeywords = target === 'end'
+    ? city.id === 'shanghai' ? ['上海虹桥站', '上海站', '虹桥机场'] : [`${city.name}站`, `${city.name}机场`, city.pois[0]?.name].filter((name): name is string => Boolean(name))
+    : city.id === 'shanghai'
     ? ['和平饭店', '上海外滩', '静安寺 酒店', '陆家嘴 酒店']
     : [...new Set([city.hotel.name.replace(/ · .*$/, ''), city.pois[0]?.name, `${city.name} 酒店`].filter((name): name is string => Boolean(name)))]
 
@@ -31,7 +39,7 @@ export default function HotelPanel() {
     searchId.current += 1
     setKeyword(''); setResults([]); setMessage(null); setLoading(false)
     return () => { searchId.current += 1 }
-  }, [cityId])
+  }, [cityId, target])
 
   async function handleSearch(kw = keyword) {
     const q = kw.trim()
@@ -72,11 +80,12 @@ export default function HotelPanel() {
   function pick(poi: PoiPreset) {
     searchId.current += 1
     setLoading(false)
-    setHotel({ name: poi.name, lng: poi.lng, lat: poi.lat, address: poi.district })
+    setHotel({ name: poi.name, lng: poi.lng, lat: poi.lat, address: poi.address || poi.district })
     setResults([])
     setKeyword('')
     setMessage(null)
     panTo(poi.lng, poi.lat, 15)
+    onPicked?.()
   }
 
   /** 以当前地图中心作为酒店（现场演示很好用） */
@@ -90,12 +99,13 @@ export default function HotelPanel() {
     searchId.current += 1
     setLoading(false); setResults([])
     setHotel({
-      name: '地图中心选定的起点',
+      name: `地图中心选定的${target === 'end' ? '终点' : '起点'}`,
       lng: c.getLng(),
       lat: c.getLat(),
       address: '',
     })
-    setMessage('已把地图中心设为起点')
+    setMessage(`已把地图中心设为${target === 'end' ? '终点' : '起点'}`)
+    onPicked?.()
   }
 
   return (
@@ -103,27 +113,27 @@ export default function HotelPanel() {
       <div className="mb-2 flex items-center justify-between">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-hotel" />
-          出发地点
+          {label}
           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-normal text-slate-500">
-            固定起点
+            {target === 'end' ? '最后一天到达' : '固定起点'}
           </span>
         </h2>
-        {!hotelConfirmed && (
+        {!hotelConfirmed && target === 'origin' && (
           <span className="text-[11px] text-slate-400">当前为默认值，建议搜索确认</span>
         )}
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-        <div className="truncate text-sm font-medium text-slate-800">{hotel.name}</div>
+        <div className="truncate text-sm font-medium text-slate-800">{hotel?.name || '尚未设置终点，请搜索后选择'}</div>
         <div className="mt-0.5 text-[11px] text-slate-500">
-          {hotel.address || '—'} · {hotel.lng.toFixed(5)}, {hotel.lat.toFixed(5)}
+          {hotel ? `${hotel.address || '—'} · ${hotel.lng.toFixed(5)}, ${hotel.lat.toFixed(5)}` : '也可以拖动地图，再点“取中心”'}
         </div>
       </div>
 
       <div className="mt-2 flex gap-2">
         <input
           className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm outline-none placeholder:text-slate-400 focus:border-blue-500"
-          aria-label={`搜索${city.name}的出发地点`}
+          aria-label={`搜索${city.name}的${label}`}
           placeholder={`搜索${city.name}的酒店或地名`}
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
@@ -141,7 +151,7 @@ export default function HotelPanel() {
         <button
           className="shrink-0 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
           onClick={useMapCenter}
-          title="把当前地图中心设为出发地点"
+          title={`把当前地图中心设为${label}`}
         >
           取中心
         </button>

@@ -56,7 +56,8 @@ def _construct(req: SolveRequest, weighted: list[list[float]]) -> list[int]:
 
 def _two_opt(req: SolveRequest, weighted: list[list[float]], order: list[int]) -> list[int]:
     """2-opt：反转子段。只在时间窗仍然可行、且目标值下降时才接受。"""
-    if len(order) < 3:
+    # 独立终点和单行道路会使两个景点的先后顺序成本不同，也需要比较反转。
+    if len(order) < 2:
         return order
     best = list(order)
     best_obj = objective_of(req, weighted, best)

@@ -14,7 +14,9 @@
  * 降级：任何一步失败（没 Key、SDK 没就绪、超时、配额用尽、接口报错）都回退到本地预置 POI，
  * 并把原因通过 notice 交给 UI 显示 —— 绝不静默失败。
  */
-import { searchLocalPois, SHANGHAI_POIS } from '@/data/shanghaiPois'
+import { SHANGHAI_POIS } from '@/data/shanghaiPois'
+import { CITIES } from '@/data/cities'
+import type { PoiPreset } from '@/types'
 import { loadAMap } from '@/lib/amap'
 import { coordsFrom, parseClosedWeekdays, parseOpenHours, tagsFromType } from '@/lib/amapParse'
 import { getAMap } from '@/lib/mapInstance'
@@ -25,6 +27,7 @@ let searchCity = '上海'
 export function setSearchCity(cityName: string) {
   searchCity = cityName
   autoCompleteRef = null
+  placeSearchRef = null
 }
 /** 在线搜索的超时保护：高德的回调在断网时可能永远不回来 */
 const SEARCH_TIMEOUT_MS = 6000
@@ -32,6 +35,7 @@ const ONLINE_LIMIT = 8
 const LOCAL_LIMIT = 5
 
 export interface PlaceSuggestion {
+  cityName?: string
   /** 列表 key：在线用高德 poi id，本地用名字 */
   key: string
   name: string
@@ -100,14 +104,18 @@ async function ensureAMap(): Promise<any | null> {
 let autoCompleteRef: any = null
 let placeSearchRef: any = null
 
-function autoCompleteSearch(AMap: any, keyword: string, limit: number): Promise<any[]> {
-  if (!autoCompleteRef) {
+let autoCompleteCity = ''
+let placeSearchCity = ''
+
+function autoCompleteSearch(AMap: any, keyword: string, limit: number, city: string): Promise<any[]> {
+  if (!autoCompleteRef || autoCompleteCity !== city) {
     autoCompleteRef = new AMap.AutoComplete({
-      city: searchCity,
+      city,
       citylimit: true,
       // 只要 POI：默认的 'all' 会把公交线路也混进来，对旅行规划没有意义
       datatype: 'poi',
     })
+    autoCompleteCity = city
   }
   return new Promise((resolve, reject) => {
     autoCompleteRef.search(keyword, (status: string, result: any) => {
@@ -118,13 +126,14 @@ function autoCompleteSearch(AMap: any, keyword: string, limit: number): Promise<
   })
 }
 
-function placeDetail(AMap: any, poiId: string): Promise<any | null> {
-  if (!placeSearchRef) {
+function placeDetail(AMap: any, poiId: string, city: string): Promise<any | null> {
+  if (!placeSearchRef || placeSearchCity !== city) {
     placeSearchRef = new AMap.PlaceSearch({
-      city: searchCity,
+      city,
       citylimit: true,
       extensions: 'all', // 必须 all 才有 biz_ext（营业时间/评分）
     })
+    placeSearchCity = city
   }
   return new Promise((resolve, reject) => {
     placeSearchRef.getDetails(poiId, (status: string, result: any) => {
@@ -155,8 +164,17 @@ function tipToSuggestion(tip: any): PlaceSuggestion | null {
   }
 }
 
-function localSuggestions(keyword: string, limit = LOCAL_LIMIT): PlaceSuggestion[] {
-  return searchLocalPois(keyword, limit).map((poi) => ({
+export function localPoisForCity(cityName: string): PoiPreset[] {
+  const city = CITIES.find(item => item.name === cityName)
+  if (!city) return []
+  const places: PoiPreset[] = city.pois.map(poi => ({ ...poi, openTime: poi.openTime ?? '', closeTime: poi.closeTime ?? '', stayMin: poi.stayMin ?? 60, tags: poi.tags ?? [] }))
+  return [...new Map([...(city.id === 'shanghai' ? SHANGHAI_POIS : []), ...places].map(poi => [poi.name, poi])).values()]
+}
+
+function localSuggestions(keyword: string, city: string, limit = LOCAL_LIMIT): PlaceSuggestion[] {
+  const kw = keyword.toLowerCase()
+  return localPoisForCity(city).filter(poi => [poi.name, poi.district, poi.address, ...(poi.tags ?? [])].some(value => value?.toLowerCase().includes(kw))).slice(0, limit).map((poi) => ({
+    cityName: city,
     key: `local:${poi.name}`,
     name: poi.name,
     district: poi.district,
@@ -181,20 +199,21 @@ export async function searchPlaces(keyword: string, limit = ONLINE_LIMIT): Promi
   const kw = keyword.trim()
   if (!kw) return { items: [], degraded: false }
 
-  const local = localSuggestions(kw)
+  const city = searchCity
+  const local = localSuggestions(kw, city)
   const AMap = await ensureAMap()
   if (!AMap) {
     return {
       items: local,
       degraded: true,
-      notice: `地图未就绪（未配置高德 JS Key？），已回退到本地 ${SHANGHAI_POIS.length} 个预置 POI`,
+      notice: `地图未就绪，先显示${city}的本地预置地点`,
     }
   }
 
   try {
-    const tips = await withTimeout(autoCompleteSearch(AMap, kw, limit), SEARCH_TIMEOUT_MS, '在线搜索')
+    const tips = await withTimeout(autoCompleteSearch(AMap, kw, limit, city), SEARCH_TIMEOUT_MS, '在线搜索')
     const online = tips
-      .map(tipToSuggestion)
+      .map<PlaceSuggestion | null>(tip => { const item = tipToSuggestion(tip); return item ? { ...item, cityName: city } : null })
       .filter((item): item is PlaceSuggestion => item !== null)
 
     if (!online.length) {
@@ -218,7 +237,7 @@ export async function searchPlaces(keyword: string, limit = ONLINE_LIMIT): Promi
     return {
       items: local,
       degraded: true,
-      notice: `在线搜索失败（${reason}），已回退到本地 ${SHANGHAI_POIS.length} 个预置 POI`,
+      notice: `在线搜索失败（${reason}），先显示${city}的本地预置地点`,
     }
   }
 }
@@ -236,7 +255,7 @@ export async function resolveSuggestion(suggestion: PlaceSuggestion): Promise<Pl
 
   try {
     const poi = await withTimeout(
-      placeDetail(AMap, suggestion.amapId),
+      placeDetail(AMap, suggestion.amapId, suggestion.cityName ?? searchCity),
       SEARCH_TIMEOUT_MS,
       '地点详情',
     )

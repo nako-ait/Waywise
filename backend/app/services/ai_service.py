@@ -427,6 +427,7 @@ async def replan(req: AiReplanRequest) -> AiReplanResponse:
 
     new_req = PlanRequest(
         hotel=req.hotel,
+        cityName=req.cityName, endMode=req.endMode, endPoint=req.endPoint,
         destinations=destinations,
         days=days,
         mode=mode,

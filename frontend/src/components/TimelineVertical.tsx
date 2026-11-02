@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { fromHereNavUrl, navHint, previousPointFor, stopNavUrl } from '@/lib/amapNav'
+import { buildNavUrl, fromHereNavUrl, navHint, previousPointFor, stopNavUrl } from '@/lib/amapNav'
+import { dayEndPoint, dayFinishName } from '@/lib/tripEndpoints'
 import { formatMinutes, formatMoney } from '@/lib/geo'
 import { isClosedToday } from '@/lib/amapParse'
 import { MODE_ORDER, MODE_STYLES, modeStyle } from '@/lib/routeStyle'
@@ -150,7 +151,9 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
   }
 
   const meta = plan.solver
-  const isAmap = [...day.stops.map(stop => stop.transportFromPrev), day.returnLeg]
+  const end = dayEndPoint(day, hotel)
+  const finishName = dayFinishName(day, hotel)
+  const isAmap = [...day.stops.map(stop => stop.transportFromPrev), ...(end ? [day.returnLeg] : [])]
     .every(leg => leg?.dataSource === 'amap' && leg.approx === false)
   const partiallyEstimated = meta?.dataSource === 'amap' && !isAmap
   const returnMode = modeStyle(day.returnLeg?.transportMode ?? day.returnLeg?.mode ?? meta?.mode ?? currentMode)
@@ -339,10 +342,10 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
           )
         })}
 
-        {/* 回酒店 */}
-        <div className="flex flex-wrap items-center gap-2 py-1 pl-7 text-[10px] text-slate-400">
-          <span className="basis-full truncate text-[10px] text-slate-500" title={`${day.stops[day.stops.length - 1].name} → ${hotel.name}`}>
-            {day.stops[day.stops.length - 1].name} → {hotel.name}
+        {/* 最后一段：返回起点或到独立终点；自由结束没有额外交通。 */}
+        {end && <div className="flex flex-wrap items-center gap-2 py-1 pl-7 text-[10px] text-slate-400">
+          <span className="basis-full truncate text-[10px] text-slate-500" title={`${day.stops[day.stops.length - 1].name} → ${finishName}`}>
+            {day.stops[day.stops.length - 1].name} → {finishName}
           </span>
           {readOnly ? (
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500">{returnMode.label}</span>
@@ -361,14 +364,18 @@ export default function TimelineVertical({ readOnly = false }: { readOnly?: bool
           {legCost(day.returnLeg)}
           <TransitOptions options={day.returnLeg?.transitOptions} />
           {legFeedback(day.returnLeg)}
-        </div>
+          <div className="flex basis-full gap-3">
+            <a className="text-slate-500 hover:underline" href={buildNavUrl({ from: day.stops[day.stops.length - 1], to: end, mode: returnMode.key, weights })} target="_blank" rel="noreferrer">导航到终点</a>
+            <a className="text-slate-500 hover:underline" href={buildNavUrl({ to: end, mode: returnMode.key, weights })} target="_blank" rel="noreferrer">从我这出发</a>
+          </div>
+        </div>}
         <div className="flex gap-2">
           <div className="flex w-5 flex-col items-center">
-            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] bg-[#1d4ed8]" />
+            <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] ${day.endMode === 'return' || !day.endMode ? 'bg-[#1d4ed8]' : 'bg-teal-700'}`} />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-semibold text-slate-900">{hotel.name}</div>
-            <div className="text-[10px] text-slate-400">预计 {day.returnTime ?? '—'} 到达</div>
+            <div className="text-[13px] font-semibold text-slate-900">{day.endMode === 'last_stop' ? `在 ${finishName} 结束` : finishName}</div>
+            <div className="text-[10px] text-slate-400">预计 {day.returnTime ?? '—'} {day.endMode === 'last_stop' ? '结束' : '到达'}</div>
           </div>
         </div>
 

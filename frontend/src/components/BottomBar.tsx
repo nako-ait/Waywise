@@ -18,6 +18,8 @@ const WEIGHT_META: Array<{ key: 'time' | 'convenience' | 'cost' | 'walking'; lab
  */
 export default function BottomBar() {
   const hotel = useTripStore((s) => s.hotel)
+  const endMode = useTripStore((s) => s.endMode)
+  const endPoint = useTripStore((s) => s.endPoint)
   const destinations = useTripStore((s) => s.destinations)
   const plan = useTripStore((s) => s.plan)
   const planError = useTripStore((s) => s.planError)
@@ -43,11 +45,12 @@ export default function BottomBar() {
   /** 没有路书时的粗略估算：酒店 → 各选中点（按列表顺序）→ 酒店 的直线距离 */
   const estimate = useMemo(() => {
     if (!picked.length) return { km: 0, stayMin: 0 }
-    const route = [hotel, ...picked, hotel]
+    const terminal = endMode === 'return' ? hotel : endMode === 'custom' ? endPoint : null
+    const route = [hotel, ...picked, ...(terminal ? [terminal] : [])]
     let km = 0
     for (let i = 1; i < route.length; i += 1) km += straightKm(route[i - 1], route[i])
     return { km, stayMin: picked.reduce((sum, d) => sum + (d.stayMin ?? 60), 0) }
-  }, [hotel, picked])
+  }, [hotel, picked, endMode, endPoint])
 
   async function handlePrewarm() {
     setPrewarming(true)
@@ -237,7 +240,7 @@ export default function BottomBar() {
         <span className="hidden text-[11px] leading-4 text-slate-400 lg:block">
           {picked.length < 1
             ? '至少选中 1 个目的地'
-            : `${picked.length} 个点 · ${days} 天 · 酒店往返闭环`}
+            : `${picked.length} 个点 · ${days} 天 · ${endMode === 'return' ? '返回起点' : endMode === 'last_stop' ? '最后一站结束' : endPoint ? '独立终点' : '待选终点'}`}
         </span>        <button
           className="rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
           onClick={() => void handlePrewarm()}

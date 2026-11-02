@@ -64,6 +64,8 @@ async def post_turn(req: AiTurnRequest) -> AiTurnResponse:
             "weights": req.weights.model_dump(),
             "options": req.options.model_dump(),
             "hotel": req.hotel,
+            "endMode": req.endMode,
+            "endPoint": req.endPoint,
             "destinations": [d.model_dump() for d in req.destinations],
             "legModes": req.legModes,
             "limits": req.limits.model_dump() if req.limits else None,

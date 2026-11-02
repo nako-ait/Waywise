@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
@@ -27,7 +28,8 @@ AMAP_BASE = "https://restapi.amap.com"
 SHANGHAI_CITYCODE = "021"
 HTTP_TIMEOUT = 8.0
 DRIVING_CACHE_SECONDS = 300
-ROUTING_DATA_VERSION = "vehicle-access-20261028"
+ROUTING_DATA_VERSION = "multicity-endpoints-20261102"
+routing_city: ContextVar[str] = ContextVar("routing_city", default="")
 # 距离矩阵最多 100 个起点，留点余量
 MAX_ORIGINS_PER_CALL = 90
 
@@ -416,10 +418,11 @@ async def distance_from_center(
 # --------------------------------------------------------------------------- #
 # 地理编码（把自然语言里的地名变成 GCJ-02 坐标）
 # --------------------------------------------------------------------------- #
-async def geocode_name(name: str, city: str = SHANGHAI_CITYCODE) -> tuple[float, float, str] | None:
+async def geocode_name(name: str, city: str | None = None) -> tuple[float, float, str] | None:
     """地名 -> (经度, 纬度, 格式化地址)。无 Key 或失败返回 None（上层会报「未识别」而不是猜坐标）。"""
     if not has_web_key() or not name.strip():
         return None
+    city = city or routing_city.get() or SHANGHAI_CITYCODE
 
     key = cache.make_key("geocode", {"name": name.strip(), "city": city})
     cached = cache.get(key)
@@ -662,6 +665,29 @@ def _transit_polyline(transit: dict) -> tuple[list[LatLng], float]:
     return path, walk_m / 1000.0
 
 
+async def _city_for_point(client: httpx.AsyncClient, point: LatLng) -> str | None:
+    """Resolve legacy requests from coordinates; never silently assume Shanghai."""
+    key = cache.make_key("route-city", [round(point[0], 3), round(point[1], 3)])
+    cached = cache.get(key)
+    if isinstance(cached, str) and cached.isdigit():
+        return cached
+    resp = await client.get(f"{AMAP_BASE}/v3/geocode/regeo", params={
+        "key": _amap_key(), "location": f"{point[0]},{point[1]}", "extensions": "base",
+    })
+    resp.raise_for_status()
+    data = resp.json()
+    if str(data.get("status")) != "1":
+        return None
+    component = (data.get("regeocode") or {}).get("addressComponent") or {}
+    city = component.get("citycode")
+    if not isinstance(city, str) or not city.isdigit():
+        adcode = component.get("adcode")
+        city = adcode[:4] + "00" if isinstance(adcode, str) and len(adcode) == 6 and adcode.isdigit() else None
+    if city:
+        cache.set(key, city)
+    return city
+
+
 async def _fetch_direction(
     client: httpx.AsyncClient, a: LatLng, b: LatLng, spec: ModeSpec, weights: dict | None = None
 ) -> LegRoute | None:
@@ -671,10 +697,14 @@ async def _fetch_direction(
 
     if spec.amap_direction == "transit":
         # strategy 让高德按用户偏好先筛一遍：0 最快捷 / 1 最经济 / 2 最少换乘 / 3 最少步行
+        origin_city = routing_city.get() or await _city_for_point(client, a)
+        destination_city = routing_city.get() or await _city_for_point(client, b)
+        if not origin_city or not destination_city:
+            return None
         params = {
             **common,
-            "city": SHANGHAI_CITYCODE,
-            "cityd": SHANGHAI_CITYCODE,
+            "city": origin_city,
+            "cityd": destination_city,
             "strategy": _transit_strategy_for(weights),
         }
         url = f"{AMAP_BASE}/v3/direction/transit/integrated"
@@ -787,6 +817,8 @@ async def leg_route(
                 "a": [round(a[0], 5), round(a[1], 5)],
                 "b": [round(b[0], 5), round(b[1], 5)],
                 "mode": spec.key,
+                "routingVersion": ROUTING_DATA_VERSION,
+                "city": routing_city.get(),
                 # 公交方案的选择依赖权重，所以权重也要进缓存键，
                 # 否则换个偏好会直接复用上一份"最优线路"
                 "strategy": _transit_strategy_for(weights) if spec.amap_direction == "transit" else 0,

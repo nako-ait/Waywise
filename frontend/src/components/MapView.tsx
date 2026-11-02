@@ -8,6 +8,7 @@ import { fetchLegGeometries, type LegEndpoints, type LegGeometry } from '@/lib/r
 import { displayRoutes } from '@/lib/routeDisplay'
 import { getCity } from '@/data/cities'
 import type { Hotel, PlanDay, TravelMode } from '@/types'
+import { dayEndPoint } from '@/lib/tripEndpoints'
 import { RouteFlow } from '@/lib/routeFlow'
 import { useOrderMap, useDayScope } from '@/lib/routeOrder'
 import { bandColor, modeStyle, ROUTE_COLOR } from '@/lib/routeStyle'
@@ -34,11 +35,11 @@ function labelHtml(name: string, priority: number, key: string): string {
 }
 
 /** 酒店：蓝色方块徽标 + 地名（固定起点 / 终点） */
-function createHotelPinEl(name: string): HTMLElement {
+function createHotelPinEl(name: string, key = 'hotel'): HTMLElement {
   const el = document.createElement('div')
   el.className = 'tc-pin tc-pin--hotel'
   el.innerHTML =
-    labelHtml(name, 0, 'hotel') +
+    labelHtml(name, 0, key) +
     `<div class="tc-pin__head"></div>` +
     `<div class="tc-pin__tail"></div>`
   // ⚠️ 关键：标记上的事件必须阻止冒泡，否则地图 click 会紧接着触发，
@@ -136,6 +137,7 @@ export default function MapView() {
   /** 候选点标记的渲染缓存（是否显示标签|图标|名称） */
   const candidateMetaRef = useRef<Map<string, string>>(new Map())
   const hotelMarkerRef = useRef<any>(null)
+  const endMarkerRef = useRef<any>(null)
   /** 路线流动箭头（真实路网时才创建） */
   const flowRef = useRef<RouteFlow | null>(null)
   /** 兜底防冒泡：最近一次「点到标记」的时间戳 */
@@ -251,6 +253,8 @@ export default function MapView() {
   const mapReady = useTripStore((s) => s.mapReady)
   const plan = useTripStore((s) => s.plan)
   const mode = useTripStore((s) => s.mode)
+  const endMode = useTripStore(s => s.endMode)
+  const endPoint = useTripStore(s => s.endPoint)
   const cityId = useTripStore((s) => s.cityId)
   const isochrone = useTripStore((s) => s.isochrone)
   const isochroneVisible = useTripStore((s) => s.isochroneVisible)
@@ -260,6 +264,27 @@ export default function MapView() {
   const orderMap = useOrderMap()
   /** 多日模式：只高亮「当前这一天」，其他天的点退回灰色候选态 */
   const { day: activeDayPlan, dayIds } = useDayScope()
+  const mapEndPoint = activeDayPlan
+    ? activeDayPlan.endMode === 'custom' ? dayEndPoint(activeDayPlan, hotel) : null
+    : endMode === 'custom' ? endPoint : null
+  useEffect(() => {
+    endMarkerRef.current?.setMap(null)
+    endMarkerRef.current = null
+    const AMap = AMapRef.current, map = mapRef.current
+    if (!AMap || !map || !mapEndPoint) return
+    const content = createHotelPinEl(`终点 · ${mapEndPoint.name}`, 'endpoint')
+    const head = content.querySelector<HTMLElement>('.tc-pin__head')
+    if (head) head.style.backgroundColor = '#0f766e'
+    const marker = new AMap.Marker({ position: [mapEndPoint.lng, mapEndPoint.lat], anchor: 'bottom-center', content, zIndex: 310, bubble: false, extData: { kind: 'endpoint' } })
+    marker.on('click', () => {
+      lastOverlayClickAtRef.current = Date.now()
+      infoWindowRef.current?.setContent(infoWindowHtml(mapEndPoint.name, ['行程终点，最后一段交通计入总耗时与费用']))
+      infoWindowRef.current?.open(map, [mapEndPoint.lng, mapEndPoint.lat])
+    })
+    marker.setMap(map); endMarkerRef.current = marker
+    scheduleLabelLayout()
+    return () => { marker.setMap(null) }
+  }, [mapEndPoint, mapReady, scheduleLabelLayout])
   const displayedRoutes = useMemo(() => {
     if (!activeDayPlan) return []
     const current = clientPaths?.day === activeDayPlan && clientPaths.hotel === hotel && clientPaths.cityId === cityId && clientPaths.mode === mode
@@ -386,6 +411,7 @@ export default function MapView() {
       AMapRef.current = null
       infoWindowRef.current = null
       hotelMarkerRef.current = null
+      endMarkerRef.current = null
       flowRef.current?.destroy()
       flowRef.current = null
       candidateMarkersRef.current.clear()
@@ -566,10 +592,11 @@ export default function MapView() {
     if (serverRoutes.every(item => item.verified)) { setGeometryLoading(false); return }
 
     const stops = activeDayPlan.stops
+    const terminal = dayEndPoint(day, hotel)
     const points = [
       { lng: hotel.lng, lat: hotel.lat },
       ...stops.map((stop) => ({ lng: stop.lng, lat: stop.lat })),
-      { lng: hotel.lng, lat: hotel.lat },
+      ...(terminal ? [{ lng: terminal.lng, lat: terminal.lat }] : []),
     ]
     const routeMode = mode
     const legs: LegEndpoints[] = []
@@ -651,7 +678,7 @@ export default function MapView() {
           useTripStore.getState().setSelectedLeg(index)
           infoWindowRef.current?.setContent(
             infoWindowHtml(`第 ${index + 1} 段 · ${style.label}`, [
-              isReturn ? '返回酒店' : `前往 ${day.stops[index].name}`,
+              isReturn ? `前往终点 ${dayEndPoint(day, hotel)?.name ?? ''}` : `前往 ${day.stops[index].name}`,
               leg && verified
                 ? `${statsEstimated ? '估算：' : ''}${leg.durationMin} 分钟 / ${leg.distanceKm} km / ${leg.cost} 元`
                 : '',
@@ -666,7 +693,7 @@ export default function MapView() {
       // 交通方式徽标放在这段折线的中间
       const anchor = path.length ? path[Math.floor(path.length / 2)] : null
       if (anchor) {
-        const text = !verified ? '路线未确认' : `${isReturn ? '回程 · ' : ''}${statsEstimated ? '约' : ''}${Math.round(leg?.durationMin ?? 0)} 分`
+        const text = !verified ? '路线未确认' : `${isReturn ? '终段 · ' : ''}${statsEstimated ? '约' : ''}${Math.round(leg?.durationMin ?? 0)} 分`
         const marker = new AMap.Marker({
           position: anchor,
           anchor: 'center',
@@ -687,7 +714,8 @@ export default function MapView() {
     }
 
     // 把整条路线框进视野
-    fitToPoints([hotel, ...day.stops])
+    const terminal = dayEndPoint(day, hotel)
+    fitToPoints([hotel, ...day.stops, ...(terminal ? [terminal] : [])])
   }, [plan, activeDayPlan, mode, hotel, mapReady, displayedRoutes, selectedLeg])
 
   /* ============================================================

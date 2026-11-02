@@ -28,6 +28,7 @@
 npm run test:inspiration
 npm run test:origin-search
 npm run test:route-display
+npm run test:trip-endpoints
 npm run build
 ```
 
@@ -48,6 +49,8 @@ npm run build
 缺失路段只按规划中的交通方式补查，使用当前城市；不会把失败的步行或公交查询换成驾车道路来画图。客户端补齐道路形状不修改后端时间、费用或地点顺序，估算数据继续标注。多日切换和重规划忽略旧请求的返回；只为已确认路线绘制流动箭头。
 
 ## 更新云端
+
+多城市在线搜索及行程终点设置见 [TRIP_ENDPOINTS.md](TRIP_ENDPOINTS.md)。旧行程默认返回起点，现有存储标识保持不变。
 
 在服务器的项目目录执行：
 

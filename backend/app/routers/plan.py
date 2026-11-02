@@ -27,7 +27,7 @@ def list_modes() -> list[dict]:
 
 @router.post("", response_model=PlanResponse)
 async def post_plan(req: PlanRequest) -> PlanResponse:
-    """编译路书：酒店出发 → 选中目的地 → 返回酒店。"""
+    """编译路书：起点 → 所选地点 → 按 endMode 返回、自由结束或到达指定终点。"""
     if req.mode not in MODE_SPECS:
         raise HTTPException(status_code=400, detail=f"不支持的交通方式：{req.mode}")
     if len(req.destinations) > MAX_DESTINATIONS:

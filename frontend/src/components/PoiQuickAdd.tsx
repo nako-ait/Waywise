@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { SHANGHAI_POIS } from '@/data/shanghaiPois'
+import { getCity } from '@/data/cities'
 import { formatClosedWeekdays, isClosedToday } from '@/lib/amapParse'
 import {
   originLabel,
   resolveSuggestion,
   searchPlaces,
+  setSearchCity,
+  localPoisForCity,
   type PlaceSuggestion,
 } from '@/lib/amapSearch'
 import { panTo } from '@/lib/mapInstance'
@@ -22,6 +24,8 @@ import { useTripStore, type NewDestinationInput } from '@/store/useTripStore'
  */
 export default function PoiQuickAdd() {
   const addDestinations = useTripStore((s) => s.addDestinations)
+  const cityId = useTripStore(s => s.cityId)
+  const city = getCity(cityId)
 
   const [keyword, setKeyword] = useState('')
   const [items, setItems] = useState<PlaceSuggestion[]>([])
@@ -35,6 +39,17 @@ export default function PoiQuickAdd() {
 
   const seqRef = useRef(0)
   const boxRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    seqRef.current += 1
+    setSearchCity(city.name)
+    setKeyword('')
+    setItems([])
+    setOpen(false)
+    setTip(null)
+    setNotice(null)
+    setPendingKey(null)
+  }, [city.name])
 
   /* 输入 → 防抖 → 在线搜索（失败自动降级本地） */
   useEffect(() => {
@@ -60,8 +75,8 @@ export default function PoiQuickAdd() {
         setLoading(false)
       })
     }, 300)
-    return () => window.clearTimeout(timer)
-  }, [keyword])
+    return () => { window.clearTimeout(timer); seqRef.current += 1 }
+  }, [keyword, city.name])
 
   /* 点击外部收起下拉 */
   useEffect(() => {
@@ -73,10 +88,12 @@ export default function PoiQuickAdd() {
   }, [])
 
   async function addSuggestion(suggestion: PlaceSuggestion) {
+    const requestedCity = useTripStore.getState().cityId
     setPendingKey(suggestion.key)
     try {
       // 在线候选：先补详情（坐标 / 地址 / 营业时间）
       const place = await resolveSuggestion(suggestion)
+      if (requestedCity !== useTripStore.getState().cityId) return
       if (place.lng == null || place.lat == null) {
         setTip({ text: `没能取到「${place.name}」的坐标，换一条结果试试`, ok: false })
         return
@@ -154,7 +171,7 @@ export default function PoiQuickAdd() {
         <span className="text-[11px] text-slate-400">
           {loading ? '搜索中…' : degraded ? '本地预置库' : '高德在线'}
           <span className="ml-1 text-slate-300">|</span>
-          <span className="ml-1">本地兜底 {SHANGHAI_POIS.length} 个</span>
+          <span className="ml-1">{city.name}预置 {localPoisForCity(city.name).length} 个</span>
         </span>
       </div>
 
@@ -162,7 +179,7 @@ export default function PoiQuickAdd() {
         <div className="flex items-center gap-1.5">
           <input
             className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm outline-none placeholder:text-slate-400 focus:border-blue-500"
-            placeholder="搜索任意地点：外滩 / 武康路 / 某某咖啡…"
+            placeholder={`搜索${city.name}的景点、街区或咖啡馆…`}
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
             onFocus={() => items.length && setOpen(true)}

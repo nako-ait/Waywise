@@ -6,6 +6,7 @@ import { useCallback } from 'react'
 import { planRoute, prewarmPlan } from '@/api/client'
 import { useTripStore } from '@/store/useTripStore'
 import type { PlanRequest } from '@/types'
+import { getCity } from '@/data/cities'
 
 // Across workspace mounts, only the newest calculation owns the result/status.
 let latestRequest = 0
@@ -22,6 +23,9 @@ export function buildPlanPayload(options?: { reselectTransport?: boolean }): Pla
   const s = useTripStore.getState()
   return {
     hotel: { lng: s.hotel.lng, lat: s.hotel.lat, name: s.hotel.name },
+    cityName: getCity(s.cityId).name,
+    endMode: s.endMode,
+    endPoint: s.endMode === 'custom' ? s.endPoint : null,
     destinations: s.destinations.filter((d) => d.selected),
     days: s.days, mode: s.mode, weights: s.weights,
     legModes: Object.fromEntries(Object.entries(s.legModes).filter(([key]) =>
@@ -43,6 +47,10 @@ export function usePlanController() {
 
   const run = useCallback(async (options?: { reselectTransport?: boolean }) => {
     const payload = buildPlanPayload(options)
+    if (payload.endMode === 'custom' && !payload.endPoint) {
+      setPlanError('请先搜索或在地图上选定终点')
+      return
+    }
     if (payload.destinations.length === 0) {
       setPlanError('至少选中 1 个目的地才能编译路书')
       return

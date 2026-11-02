@@ -11,7 +11,8 @@
     "preview": "vite preview --port 4173",
     "test:inspiration": "node scripts/test-inspiration.mjs",
     "test:origin-search": "node scripts/test-origin-search.mjs",
-    "test:route-display": "node scripts/test-route-display.mjs"
+    "test:route-display": "node scripts/test-route-display.mjs",
+    "test:trip-endpoints": "node scripts/test-trip-endpoints.mjs"
   },
   "dependencies": {
     "@amap/amap-jsapi-loader": "^1.0.1",

@@ -70,6 +70,7 @@ async def select_leg_routes(
     *, points: list[tuple[float, float]], pairs: list[tuple[int, int]],
     preferred_modes: list[str], locked: list[bool], matrix: Matrix,
     weights: dict, windows: list[tuple[float, float, float]], start_min: float,
+    end_point: tuple[float, float] | None = None,
 ) -> tuple[list[LegRoute], list[str], list[str]]:
     """逐段手动覆盖不变；自动方式按真实耗时、费用、换乘和全天步行负担选择。
 
@@ -86,11 +87,15 @@ async def select_leg_routes(
     requested: set[tuple[int, str]] = set()
     notes: list[str] = []
 
+    def endpoints(i: int):
+        a, b = pairs[i]
+        return points[a], end_point if b == 0 and end_point is not None else points[b]
+
     async def fetch(jobs: list[tuple[int, str]]) -> None:
         jobs = list(dict.fromkeys(job for job in jobs if job not in requested))
         requested.update(jobs)
         results = await asyncio.gather(*[
-            leg_route(points[pairs[i][0]], points[pairs[i][1]], mode,
+            leg_route(*endpoints(i), mode,
                       matrix, pairs[i][0], pairs[i][1], weights)
             for i, mode in jobs
         ], return_exceptions=True)
@@ -131,7 +136,7 @@ async def select_leg_routes(
     # 即使上游异常也不能让整条路书 500；后备估算必须明确标示。
     for i, preferred in enumerate(preferred_modes):
         if preferred not in candidates[i]:
-            a, b = (points[index] for index in pairs[i])
+            a, b = endpoints(i)
             minutes, km, cost, walk, transfers = derive_cell(
                 get_mode(preferred), 0, 0, haversine_km(a, b),
             )
